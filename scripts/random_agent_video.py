@@ -64,7 +64,7 @@ def record_random_episode(
 
     print(f"[EcoTrack] Recording random episode to: {out_path}")
 
-    while not (done or truncated) and step_idx < max_steps:
+    while step_idx < max_steps:
         action = env.action_space.sample()
         obs, reward, done, truncated, info = env.step(action)
 
@@ -102,7 +102,7 @@ if __name__ == "__main__":
     # Choose whether to make MP4 or GIF here
     # Set use_gif=True if ffmpeg isn't available on the grading machine.
     record_random_episode(
-        max_steps=80,
+        max_steps=200,
         fps=10,
         out_dir="figures",
         out_filename="random_agent_demo.mp4",
