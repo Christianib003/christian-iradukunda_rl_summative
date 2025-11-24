@@ -14,12 +14,6 @@ class EcoTrackEnv(gym.Env):
     on a 2D grid city, collects trash from bins (normal + high-priority),
     unloads at a depot, and tries to avoid overflow events while working
     within a fixed time horizon.
-
-    This file implements the *skeleton*:
-    - Action and observation spaces
-    - State representation
-    - Basic step/reset structure
-
     """
 
     metadata = {"render_modes": ["human"], "render_fps": 10}
@@ -44,12 +38,37 @@ class EcoTrackEnv(gym.Env):
         self.max_capacity = max_capacity
         self.render_mode = render_mode
 
-        # Will be set by _build_map()
+        # Reward & penalty coefficients (can be tuned)
+        self.alpha_collect = 0.05          # reward per unit of collected waste
+        self.R_serviced_normal = 2.0       # bonus when normal bin is serviced
+        self.R_serviced_high = 5.0         # bonus when high-priority bin is serviced
+        self.R_all_high_prio = 20.0        # bonus if all high-priority bins serviced
+
+        self.C_move = 0.05                 # cost per movement
+        self.C_wait = 0.10                 # cost for WAIT action
+        self.C_invalid = 0.50              # cost for invalid/unproductive actions
+        self.C_overflow_normal = 5.0       # penalty for normal bin overflow
+        self.C_overflow_high = 10.0        # penalty for high-priority bin overflow
+
+        self.beta_terminal = 5.0           # terminal shaping coef * serviced_bins_ratio
+
+        # Overflow & bin thresholds
+        self.overflow_threshold = self.max_capacity  # >100% considered overflow
+        self.max_overflows = 5                       # truncate episode if exceeded
+        self.serviced_threshold_ratio = 0.1          # <= 10% considered serviced
+
+        # Bin fill dynamics (per-step increments)
+        self.normal_fill_range = (1.0, 3.0)          # units per step for normal bins
+        self.high_fill_range = (2.0, 5.0)            # units per step for high-priority bins
+        self.max_bin_fill = self.max_capacity * 1.5  # clamp to avoid runaway values
+
+        # Map-related attributes (set by _build_map)
         self.depot_pos: Tuple[int, int] = (0, 0)
         self.bin_positions: List[Tuple[int, int]] = []
         self.bin_priority: np.ndarray | None = None  # shape (num_bins,)
         self.total_bins: int = 0
         self.total_high_priority_bins: int = 0
+        self.blocked_cells: set[Tuple[int, int]] = set()  # optional
 
         # --- Internal state variables (episode-specific) ---
         self.truck_pos: Tuple[int, int] = (0, 0)
@@ -61,7 +80,11 @@ class EcoTrackEnv(gym.Env):
         self.serviced_bins_count: int = 0
         self.serviced_high_priority_count: int = 0
 
-        # RNG will be set by Gymnasium's seeding in reset()
+        # Per-bin flags
+        self.serviced_bins_mask: np.ndarray | None = None  # shape (num_bins,), bool
+        self.overflowed_mask: np.ndarray | None = None     # shape (num_bins,), bool
+
+        # RNG (set by Gymnasium's seeding logic in reset)
         self.np_random: np.random.Generator | None = None
 
         # --- Define action space ---
@@ -69,7 +92,7 @@ class EcoTrackEnv(gym.Env):
         self.action_space = spaces.Discrete(7)
 
         # --- Define observation space ---
-        # As per design: 9 global features + 5 * 4 bin features = 29
+        # 9 global features + 5 * 4 bin features = 29
         obs_dim = 9 + self.K_NEAREST_BINS * 4
         self.observation_space = spaces.Box(
             low=-1.0,
@@ -78,7 +101,7 @@ class EcoTrackEnv(gym.Env):
             dtype=np.float32,
         )
 
-        # Build a simple default map layout (bins + depot positions)
+        # Build static map (bins + depot positions)
         self._build_map()
 
     # ----------------------------------------------------------------------
@@ -90,15 +113,11 @@ class EcoTrackEnv(gym.Env):
         - Depot position
         - Locations of bins
         - Which bins are high-priority
-
-        For now we use a simple hard-coded layout.
-        Later, this can be randomized or made more complex if desired.
         """
-        # Example: depot at (0, 0)
+        # Depot at (0, 0)
         self.depot_pos = (0, 0)
 
-        # Example bin placement:
-        # A few normal bins and a few high-priority bins scattered in the grid.
+        # Example bin placement
         bin_positions: List[Tuple[int, int]] = [
             (2, 2),
             (3, 5),
@@ -108,7 +127,6 @@ class EcoTrackEnv(gym.Env):
             (1, 8),
             (4, 6),
         ]
-        # Mark some as high-priority (e.g. markets/hospitals)
         # 1 = high-priority, 0 = normal
         bin_priority_flags = np.array([0, 1, 0, 1, 0, 0, 1], dtype=np.int32)
 
@@ -120,6 +138,9 @@ class EcoTrackEnv(gym.Env):
         self.bin_priority = bin_priority_flags
         self.total_bins = len(self.bin_positions)
         self.total_high_priority_bins = int(self.bin_priority.sum())
+
+        # No blocked cells for now (can be extended later)
+        self.blocked_cells = set()
 
     # ----------------------------------------------------------------------
     # Gymnasium API: reset and step
@@ -135,12 +156,13 @@ class EcoTrackEnv(gym.Env):
 
         Returns:
             observation (np.ndarray): initial observation vector
-            info (dict): additional metadata (empty for now)
+            info (dict): additional metadata
         """
         super().reset(seed=seed)
-        # Gymnasium's seeding mechanism sets self.np_random
+
+        # Ensure we have a RNG
         if self.np_random is None:
-            # Fallback if not set; this should not usually be necessary
+            # Gymnasium registers its own RNG; fallback for safety
             self.np_random = np.random.default_rng(seed)
 
         # --- Reset episode state ---
@@ -148,8 +170,7 @@ class EcoTrackEnv(gym.Env):
         self.truck_load = 0.0
         self.t_step = 0
 
-        # Initialize bin fills with some random values (placeholder)
-        # Actual ranges / logic will be refined in the dynamics card.
+        # Initialize bin fills in [20%, 60%] of capacity
         low_init = 0.2 * self.max_capacity
         high_init = 0.6 * self.max_capacity
         self.bin_fill = self.np_random.uniform(
@@ -160,6 +181,9 @@ class EcoTrackEnv(gym.Env):
         self.serviced_bins_count = 0
         self.serviced_high_priority_count = 0
 
+        self.serviced_bins_mask = np.zeros(self.total_bins, dtype=bool)
+        self.overflowed_mask = np.zeros(self.total_bins, dtype=bool)
+
         obs = self._get_obs()
         info: Dict[str, Any] = {}
         return obs, info
@@ -168,36 +192,216 @@ class EcoTrackEnv(gym.Env):
         """
         Apply one environment step given the selected action.
 
-        This skeleton version:
-        - Validates the action,
-        - Increments time,
-        - Returns the current observation with zero reward,
-        - Ends the episode when max_steps is reached.
-
-        Full movement, bin dynamics, rewards, and overflow logic will be
-        implemented in the next task.
+        Implements:
+        - Movement and invalid moves
+        - PICK_UP, UNLOAD, WAIT actions
+        - Bin fill dynamics & overflow penalties
+        - Reward calculation and termination conditions
         """
         # Validate action
         assert self.action_space.contains(action), f"Invalid action: {action}"
 
-        # TODO: Implement full movement / pickup / unload / wait behaviour here.
-        # For now, we just advance time and keep the state fixed.
+        if self.bin_fill is None:
+            raise RuntimeError("Environment must be reset() before step().")
 
+        # Track reward components for debugging
+        r_collect = 0.0
+        r_serviced_bonus = 0.0
+        r_move = 0.0
+        r_wait = 0.0
+        r_invalid = 0.0
+        r_overflow = 0.0
+        r_terminal = 0.0
+
+        # ------------------------------------------------------------------
+        # 1. Apply chosen action
+        # ------------------------------------------------------------------
+        x, y = self.truck_pos
+        new_x, new_y = x, y
+
+        # Movement actions
+        if action in [0, 1, 2, 3]:
+            if action == 0:       # MOVE_UP
+                new_y = y - 1
+            elif action == 1:     # MOVE_DOWN
+                new_y = y + 1
+            elif action == 2:     # MOVE_LEFT
+                new_x = x - 1
+            elif action == 3:     # MOVE_RIGHT
+                new_x = x + 1
+
+            # Check if move is valid (within grid & not blocked)
+            if (
+                0 <= new_x < self.grid_width
+                and 0 <= new_y < self.grid_height
+                and (new_x, new_y) not in self.blocked_cells
+            ):
+                # Valid move
+                self.truck_pos = (new_x, new_y)
+                r_move -= self.C_move
+            else:
+                # Invalid move (hit boundary or blocked cell)
+                r_invalid -= self.C_invalid
+
+        elif action == 4:
+            # PICK_UP
+            bin_idx = self._bin_index_at_position(self.truck_pos)
+
+            if bin_idx is None:
+                # No bin here
+                r_invalid -= self.C_invalid
+            elif self.truck_load >= self.max_capacity:
+                # No capacity
+                r_invalid -= self.C_invalid
+            else:
+                # Valid pickup
+                remaining_capacity = self.max_capacity - self.truck_load
+                current_fill = self.bin_fill[bin_idx]
+                collectible = min(remaining_capacity, current_fill)
+                if collectible <= 0:
+                    # Nothing useful to collect
+                    r_invalid -= self.C_invalid
+                else:
+                    # Apply collection
+                    self.truck_load += collectible
+                    self.bin_fill[bin_idx] = max(0.0, current_fill - collectible)
+                    r_collect += self.alpha_collect * collectible
+
+                    # Check if bin now considered serviced (below threshold)
+                    serviced_threshold = self.serviced_threshold_ratio * self.max_capacity
+                    if (
+                        self.bin_fill[bin_idx] <= serviced_threshold
+                        and not self.serviced_bins_mask[bin_idx]
+                    ):
+                        self.serviced_bins_mask[bin_idx] = True
+                        self.serviced_bins_count += 1
+                        if self.bin_priority[bin_idx] == 1:
+                            self.serviced_high_priority_count += 1
+                            r_serviced_bonus += self.R_serviced_high
+                        else:
+                            r_serviced_bonus += self.R_serviced_normal
+
+        elif action == 5:
+            # UNLOAD
+            if self.truck_pos == self.depot_pos:
+                # Valid unload
+                self.truck_load = 0.0
+                # Optional: small positive reward could be added here,
+                # but for now we keep it neutral. The main benefit is
+                # freeing capacity to collect more.
+            else:
+                # Invalid unload attempt
+                r_invalid -= self.C_invalid
+
+        elif action == 6:
+            # WAIT
+            r_wait -= self.C_wait
+
+        # ------------------------------------------------------------------
+        # 2. Advance time
+        # ------------------------------------------------------------------
         self.t_step += 1
 
-        # Placeholder reward and termination logic
-        reward = 0.0
+        # ------------------------------------------------------------------
+        # 3. Update bin fills & check overflow
+        # ------------------------------------------------------------------
+        for i in range(self.total_bins):
+            # Increase bin fill based on type
+            if self.bin_priority[i] == 1:
+                low, high = self.high_fill_range
+            else:
+                low, high = self.normal_fill_range
+
+            increment = float(self.np_random.uniform(low=low, high=high))
+            self.bin_fill[i] += increment
+            # Clamp to max_bin_fill for numeric stability
+            if self.bin_fill[i] > self.max_bin_fill:
+                self.bin_fill[i] = self.max_bin_fill
+
+            # Overflow check
+            if (
+                self.bin_fill[i] > self.overflow_threshold
+                and not self.overflowed_mask[i]
+            ):
+                self.overflowed_mask[i] = True
+                self.overflow_count += 1
+
+                if self.bin_priority[i] == 1:
+                    r_overflow -= self.C_overflow_high
+                else:
+                    r_overflow -= self.C_overflow_normal
+
+        # ------------------------------------------------------------------
+        # 4. Check termination / truncation
+        # ------------------------------------------------------------------
         terminated = False
         truncated = False
 
+        # End of "day"
         if self.t_step >= self.max_steps:
-            # End of the day
             terminated = True
 
-        obs = self._get_obs()
+        # Catastrophic overflow condition
+        if self.overflow_count > self.max_overflows:
+            # Treat this as truncation (episode ended early for bad performance)
+            truncated = True
 
-        info: Dict[str, Any] = {}
-        return obs, float(reward), terminated, truncated, info
+        # Terminal shaping reward
+        if terminated or truncated:
+            serviced_bins_ratio = (
+                self.serviced_bins_count / self.total_bins
+                if self.total_bins > 0
+                else 0.0
+            )
+            r_terminal += self.beta_terminal * serviced_bins_ratio
+
+            # Bonus if all high-priority bins have been serviced
+            if (
+                self.total_high_priority_bins > 0
+                and self.serviced_high_priority_count == self.total_high_priority_bins
+            ):
+                r_terminal += self.R_all_high_prio
+
+        # ------------------------------------------------------------------
+        # 5. Build observation & total reward
+        # ------------------------------------------------------------------
+        obs = self._get_obs()
+        total_reward = (
+            r_collect
+            + r_serviced_bonus
+            + r_move
+            + r_wait
+            + r_invalid
+            + r_overflow
+            + r_terminal
+        )
+
+        info: Dict[str, Any] = {
+            "step_reward_components": {
+                "collect": r_collect,
+                "serviced_bonus": r_serviced_bonus,
+                "move": r_move,
+                "wait": r_wait,
+                "invalid": r_invalid,
+                "overflow": r_overflow,
+                "terminal": r_terminal,
+            },
+            "overflow_count": self.overflow_count,
+            "serviced_bins_count": self.serviced_bins_count,
+            "serviced_high_priority_count": self.serviced_high_priority_count,
+        }
+
+        return obs, float(total_reward), terminated, truncated, info
+
+    # ----------------------------------------------------------------------
+    # Helpers
+    # ----------------------------------------------------------------------
+    def _bin_index_at_position(self, pos: Tuple[int, int]) -> Optional[int]:
+        """Return the index of the bin at the given position, or None."""
+        for idx, (bx, by) in enumerate(self.bin_positions):
+            if (bx, by) == pos:
+                return idx
+        return None
 
     # ----------------------------------------------------------------------
     # Observation construction
@@ -225,7 +429,7 @@ class EcoTrackEnv(gym.Env):
         depot_dx = depot_x - x
         depot_dy = depot_y - y
 
-        # Normalize distances to [-1, 1] (max distance is grid_width/height)
+        # Normalize distances to [-1, 1]
         depot_dx_norm = np.clip(depot_dx / (self.grid_width - 1), -1.0, 1.0)
         depot_dy_norm = np.clip(depot_dy / (self.grid_height - 1), -1.0, 1.0)
 
@@ -257,7 +461,6 @@ class EcoTrackEnv(gym.Env):
         )
 
         # --- Local bin features for K nearest bins ---
-        # Compute distances from truck to each bin
         bin_features: List[float] = []
 
         distances = []
@@ -265,7 +468,6 @@ class EcoTrackEnv(gym.Env):
             dist = abs(bx - x) + abs(by - y)  # Manhattan distance
             distances.append((dist, idx))
 
-        # Sort by distance and take K nearest
         distances.sort(key=lambda t: t[0])
         k = min(self.K_NEAREST_BINS, len(distances))
         selected_indices = [distances[i][1] for i in range(k)]
@@ -277,14 +479,13 @@ class EcoTrackEnv(gym.Env):
 
             dx = bx - x
             dy = by - y
-            # Normalize dx, dy to [-1, 1]
             dx_norm = np.clip(dx / (self.grid_width - 1), -1.0, 1.0)
             dy_norm = np.clip(dy / (self.grid_height - 1), -1.0, 1.0)
             fill_norm = np.clip(fill / self.max_capacity, 0.0, 1.0)
 
             bin_features.extend([dx_norm, dy_norm, fill_norm, prio])
 
-        # If fewer than K bins, pad with zeros
+        # Zero padding if fewer than K bins
         missing_bins = self.K_NEAREST_BINS - k
         if missing_bins > 0:
             bin_features.extend([0.0] * missing_bins * 4)
@@ -292,8 +493,6 @@ class EcoTrackEnv(gym.Env):
         bin_feats_arr = np.array(bin_features, dtype=np.float32)
 
         obs = np.concatenate([global_feats, bin_feats_arr], axis=0)
-
-        # Safety check – should always be the correct dimension
         assert obs.shape == self.observation_space.shape
 
         return obs
@@ -306,7 +505,7 @@ class EcoTrackEnv(gym.Env):
         Placeholder render method.
 
         Later, this will delegate to a dedicated renderer in `rendering.py`
-        for a 2D visualization (pygame/OpenGL).
+        for 2D visualization (pygame/OpenGL).
 
         For now, it prints a minimal text representation if render_mode='human'.
         """
