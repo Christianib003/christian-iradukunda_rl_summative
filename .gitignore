@@ -31,7 +31,3 @@ Thumbs.db
 models/tmp/
 results/**
 !results/.gitkeep
-
-# Figures (optional, if large)
-figures/**
-!figures/.gitkeep
