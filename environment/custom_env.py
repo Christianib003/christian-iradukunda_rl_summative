@@ -62,9 +62,10 @@ class EcoTrackEnv(gym.Env):
         self.serviced_threshold_ratio = 0.1          # <= 10% considered serviced
 
         # Bin fill dynamics (per-step increments)
-        self.normal_fill_range = (1.0, 3.0)          # units per step for normal bins
-        self.high_fill_range = (2.0, 5.0)            # units per step for high-priority bins
-        self.max_bin_fill = self.max_capacity * 1.5  # clamp to avoid runaway values
+        self.normal_fill_range = (0.3, 0.8)          # ~0.55 units/step avg
+        self.high_fill_range = (0.6, 1.2)           # ~0.9 units/step avg
+        self.max_bin_fill = self.max_capacity * 1.5  # still clamp for stability
+
 
         # Map-related attributes (set by _build_map)
         self.depot_pos: Tuple[int, int] = (0, 0)
@@ -174,9 +175,9 @@ class EcoTrackEnv(gym.Env):
         self.truck_load = 0.0
         self.t_step = 0
 
-        # Initialize bin fills in [20%, 60%] of capacity
-        low_init = 0.2 * self.max_capacity
-        high_init = 0.6 * self.max_capacity
+        # Initialize bin fills in [10%, 20%] of capacity for more breathing room
+        low_init = 0.1 * self.max_capacity
+        high_init = 0.2 * self.max_capacity
         self.bin_fill = self.np_random.uniform(
             low=low_init, high=high_init, size=(self.total_bins,)
         )
