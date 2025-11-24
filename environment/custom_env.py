@@ -5,6 +5,9 @@ import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
 
+from environment.rendering import EcoTrackRenderer
+
+
 
 class EcoTrackEnv(gym.Env):
     """
@@ -37,6 +40,7 @@ class EcoTrackEnv(gym.Env):
         self.max_steps = max_steps
         self.max_capacity = max_capacity
         self.render_mode = render_mode
+        self.renderer: EcoTrackRenderer | None = None
 
         # Reward & penalty coefficients (can be tuned)
         self.alpha_collect = 0.05          # reward per unit of collected waste
@@ -502,24 +506,32 @@ class EcoTrackEnv(gym.Env):
     # ----------------------------------------------------------------------
     def render(self):
         """
-        Placeholder render method.
+        Render the environment.
 
-        Later, this will delegate to a dedicated renderer in `rendering.py`
-        for 2D visualization (pygame/OpenGL).
+        If render_mode is 'human', this will use the EcoTrackRenderer
+        to produce a 2D visualization using pygame.
 
-        For now, it prints a minimal text representation if render_mode='human'.
+        If render_mode is None, this is a no-op.
         """
-        if self.render_mode == "human":
-            print(
-                f"[EcoTrackEnv] Step: {self.t_step} | Pos: {self.truck_pos} | "
-                f"Load: {self.truck_load:.1f} / {self.max_capacity:.1f} | "
-                f"Overflows: {self.overflow_count} | "
-                f"Serviced bins: {self.serviced_bins_count} "
-                f"(high-prio: {self.serviced_high_priority_count})"
+        if self.render_mode != "human":
+            return
+
+        # Lazy-create the renderer
+        if self.renderer is None:
+            self.renderer = EcoTrackRenderer(
+                grid_width=self.grid_width,
+                grid_height=self.grid_height,
+                cell_size=48,
+                hud_width=260,
+                fps=self.metadata.get("render_fps", 10),
             )
+
+        # Delegate actual drawing
+        self.renderer.render(self)
 
 
     def close(self):
-        """Clean up any rendering resources (if used)."""
-        # Will be used when we add a graphical renderer
-        pass
+        """Clean up any rendering resources."""
+        if self.renderer is not None:
+            self.renderer.close()
+            self.renderer = None
