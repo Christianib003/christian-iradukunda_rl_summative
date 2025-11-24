@@ -511,9 +511,13 @@ class EcoTrackEnv(gym.Env):
         """
         if self.render_mode == "human":
             print(
-                f"Step: {self.t_step} | Pos: {self.truck_pos} | "
-                f"Load: {self.truck_load:.1f} | Overflows: {self.overflow_count}"
+                f"[EcoTrackEnv] Step: {self.t_step} | Pos: {self.truck_pos} | "
+                f"Load: {self.truck_load:.1f} / {self.max_capacity:.1f} | "
+                f"Overflows: {self.overflow_count} | "
+                f"Serviced bins: {self.serviced_bins_count} "
+                f"(high-prio: {self.serviced_high_priority_count})"
             )
+
 
     def close(self):
         """Clean up any rendering resources (if used)."""
