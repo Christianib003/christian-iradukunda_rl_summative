@@ -27,7 +27,8 @@ Thumbs.db
 # Logs
 *.log
 
-# Models & results (large or regenerable)
+# Temporary / intermediate models not needed in repo
+models/tmp/
 results/**
 !results/.gitkeep
 
