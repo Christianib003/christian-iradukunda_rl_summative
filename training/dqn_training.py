@@ -30,6 +30,8 @@ Example usages (from project root):
 
 import os
 import argparse
+import csv
+import os
 from datetime import datetime
 from typing import Optional, Dict, Any
 
@@ -311,22 +313,11 @@ def train_dqn(args: argparse.Namespace) -> str:
     print(f"[DQN] Episode metrics CSV (Monitor): {monitor_file}")
 
     env.close()
-    return model_path
+    return model_path, run_log_dir
 
 
-def evaluate_dqn(model_path: str, n_episodes: int = 5, seed: Optional[int] = 123) -> None:
-    """
-    Quick evaluation of a trained DQN model on EcoTrackEnv.
-
-    Runs a small number of episodes without rendering and prints
-    average reward and episode length.
-
-    Args:
-        model_path: path to the saved DQN model.
-        n_episodes: number of evaluation episodes.
-        seed: optional seed for env.
-    """
-    print(f"[DQN] Loading model from: {model_path}")
+def evaluate_dqn(model_path: str, n_episodes: int = 5, seed: int = 123):
+    print(f"[Eval] Loading model from: {model_path}")
     model = DQN.load(model_path)
 
     rewards = []
@@ -340,9 +331,7 @@ def evaluate_dqn(model_path: str, n_episodes: int = 5, seed: Optional[int] = 123
             max_capacity=100.0,
             render_mode=None,
         )
-        if seed is not None:
-            env.reset(seed=seed + ep)
-
+        env.reset(seed=seed + ep)
         obs, info = env.reset()
         done = False
         truncated = False
@@ -360,14 +349,82 @@ def evaluate_dqn(model_path: str, n_episodes: int = 5, seed: Optional[int] = 123
         lengths.append(ep_len)
         print(f"[Eval] Episode {ep + 1}: reward={ep_reward:.2f}, length={ep_len}")
 
-    print(
-        f"[Eval] Mean reward over {n_episodes} episodes: "
-        f"{np.mean(rewards):.2f} ± {np.std(rewards):.2f}"
-    )
-    print(
-        f"[Eval] Mean episode length: "
-        f"{np.mean(lengths):.1f} ± {np.std(lengths):.1f}"
-    )
+    mean_r = float(np.mean(rewards))
+    std_r = float(np.std(rewards))
+    mean_l = float(np.mean(lengths))
+    std_l = float(np.std(lengths))
+
+    print(f"[Eval] Mean reward over {n_episodes} episodes: {mean_r:.2f} ± {std_r:.2f}")
+    print(f"[Eval] Mean episode length: {mean_l:.1f} ± {std_l:.1f}")
+
+    return {
+        "mean_reward": mean_r,
+        "std_reward": std_r,
+        "mean_length": mean_l,
+        "std_length": std_l,
+    }
+    
+    
+def append_dqn_results_row(
+    results_path: str,
+    cfg_tag: str,
+    args,
+    run_log_dir: str,
+    model_path: str,
+    metrics: dict,
+    ):
+    """
+    Append a single summary row for a DQN run to results/dqn_results.csv.
+    Creates the file + header if it does not exist.
+    """
+    os.makedirs(os.path.dirname(results_path), exist_ok=True)
+
+    fieldnames = [
+        "config_id",
+        "learning_rate",
+        "gamma",
+        "batch_size",
+        "buffer_size",
+        "target_update_interval",
+        "exploration_fraction",
+        "exploration_final_eps",
+        "total_timesteps",
+        "eval_mean_reward",
+        "eval_std_reward",
+        "eval_mean_length",
+        "eval_std_length",
+        "model_path",
+        "log_dir",
+    ]
+
+    file_exists = os.path.isfile(results_path)
+
+    with open(results_path, "a", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        if not file_exists:
+            writer.writeheader()
+
+        row = {
+            "config_id": cfg_tag,
+            "learning_rate": args.learning_rate,
+            "gamma": args.gamma,
+            "batch_size": args.batch_size,
+            "buffer_size": args.buffer_size,
+            "target_update_interval": args.target_update_interval,
+            "exploration_fraction": args.exploration_fraction,
+            "exploration_final_eps": args.exploration_final_eps,
+            "total_timesteps": args.total_timesteps,
+            "eval_mean_reward": metrics["mean_reward"],
+            "eval_std_reward": metrics["std_reward"],
+            "eval_mean_length": metrics["mean_length"],
+            "eval_std_length": metrics["std_length"],
+            "model_path": model_path,
+            "log_dir": run_log_dir,
+        }
+
+        writer.writerow(row)
+        print(f"[DQN] Appended summary row to {results_path}")
+  
 
 
 # ---------------------------------------------------------------------------
@@ -505,20 +562,40 @@ def parse_args() -> argparse.Namespace:
 def main():
     args = parse_args()
 
-    # Parse net-arch string into list[int], if provided
-    if args.net_arch is not None:
-        try:
-            args.net_arch = [int(x.strip()) for x in args.net_arch.split(",") if x.strip()]
-        except ValueError:
-            raise ValueError(f"Invalid --net-arch value: {args.net_arch}. Use e.g. '64,64'.")
-
-    # Apply preset if config_id is given (overrides some args)
+    # 1) Apply preset if --config-id is provided (DQN-01 .. DQN-10)
     apply_preset_to_args(args)
 
-    model_path = train_dqn(args)
+    # 2) If net_arch is a string (from CLI), convert "128,128" → [128, 128]
+    if isinstance(args.net_arch, str) and args.net_arch is not None:
+        layers = []
+        for h in args.net_arch.split(","):
+            h = h.strip()
+            if h:
+                layers.append(int(h))
+        args.net_arch = layers if layers else None
+
+    model_path, run_log_dir = train_dqn(args)
 
     if not args.skip_eval:
-        evaluate_dqn(model_path, n_episodes=args.eval_episodes, seed=args.seed)
+        metrics = evaluate_dqn(
+            model_path,
+            n_episodes=args.eval_episodes,
+            seed=args.seed,
+        )
+
+        results_path = os.path.join("results", "dqn_results.csv")
+        cfg_tag = args.config_id or "custom"
+
+        append_dqn_results_row(
+            results_path=results_path,
+            cfg_tag=cfg_tag,
+            args=args,
+            run_log_dir=run_log_dir,
+            model_path=model_path,
+            metrics=metrics,
+        )
+
+
 
 
 if __name__ == "__main__":
