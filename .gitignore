@@ -29,5 +29,3 @@ Thumbs.db
 
 # Temporary / intermediate models not needed in repo
 models/tmp/
-results/**
-!results/.gitkeep
