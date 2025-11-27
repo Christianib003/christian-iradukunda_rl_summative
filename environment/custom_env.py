@@ -21,8 +21,9 @@ class EcoTrackEnv(gym.Env):
         self.k_nearest = 5  # Number of nearest bins to include in observation
         self.truck_capacity = 100.0
         self.bin_capacity = 10.0  # Max fill for a bin before overflow
-        self.fill_rate_normal = 0.1   # Amount per step
-        self.fill_rate_priority = 0.3 # High priority fills 3x faster
+        # Adjusted for better pacing
+        self.fill_rate_normal = 0.02    # Was 0.1 (Now much slower)
+        self.fill_rate_priority = 0.08   # Was 0.3 (Still 5x faster than normal, but manageable)
         
         
         # --- Reward Configuration ---
@@ -387,7 +388,19 @@ class EcoTrackEnv(gym.Env):
                 (x * self.cell_size, self.window_size)
             )
 
-        # --- Dynamic Elements (Agent) will go here in Card 11 ---
+        # --- 5. Draw Agent (Truck) ---
+        # Draw the truck as a dark circle
+        center_x = int(self.agent_pos[0] * self.cell_size + self.cell_size / 2)
+        center_y = int(self.agent_pos[1] * self.cell_size + self.cell_size / 2)
+        radius = int(self.cell_size * 0.35)
+        
+        pygame.draw.circle(canvas, self.COLOR_AGENT, (center_x, center_y), radius)
+        
+        # Draw a small "Load" indicator inside the truck (White dot if loaded)
+        if self.agent_load > 0:
+            load_radius = int(radius * 0.5)
+            # visual indicator that truck is carrying something
+            pygame.draw.circle(canvas, (200, 200, 200), (center_x, center_y), load_radius)
 
         # 5. Output to Screen
         if self.render_mode == "human":
