@@ -18,6 +18,9 @@ Features:
 
 import os
 import argparse
+import os
+import csv
+import numpy as np
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 
@@ -739,14 +742,27 @@ def train_reinforce(args: argparse.Namespace) -> str:
         lengths.append(ep_len)
         print(f"[Eval-REINFORCE] Episode {ep + 1}: reward={ep_rew:.2f}, length={ep_len}")
 
+    # --- summary metrics ---
+    mean_r = float(np.mean(rewards))
+    std_r = float(np.std(rewards))
+    mean_l = float(np.mean(lengths))
+    std_l = float(np.std(lengths))
+
     print(
         f"[Eval-REINFORCE] Mean reward over {eval_episodes} episodes: "
-        f"{np.mean(rewards):.2f} ± {np.std(rewards):.2f}"
+        f"{mean_r:.2f} ± {std_r:.2f}"
     )
     print(
         f"[Eval-REINFORCE] Mean episode length: "
-        f"{np.mean(lengths):.1f} ± {np.std(lengths):.1f}"
+        f"{mean_l:.1f} ± {std_l:.1f}"
     )
+
+    metrics = {
+        "mean_reward": mean_r,
+        "std_reward": std_r,
+        "mean_length": mean_l,
+        "std_length": std_l,
+    }
 
     env.close()
 
@@ -765,7 +781,79 @@ def train_reinforce(args: argparse.Namespace) -> str:
     print(f"[REINFORCE] Saved policy state_dict to: {model_path}")
     print(f"[REINFORCE] Episode metrics CSV (Monitor): {monitor_file}")
 
+    # --- append results row for Card 14 ---
+    results_path = os.path.join("results", "reinforce_results.csv")
+    append_reinforce_results_row(
+        results_path=results_path,
+        cfg_tag=cfg_tag,
+        args=args,
+        run_log_dir=run_log_dir,
+        model_path=model_path,
+        metrics=metrics,
+    )
+
     return model_path
+
+
+
+def append_reinforce_results_row(
+    results_path: str,
+    cfg_tag: str,
+    args,
+    run_log_dir: str,
+    model_path: str,
+    metrics: dict,
+):
+    """
+    Append a single summary row for a REINFORCE run to results/reinforce_results.csv.
+    Creates the file + header if it does not exist.
+    """
+    os.makedirs(os.path.dirname(results_path), exist_ok=True)
+
+    fieldnames = [
+        "config_id",
+        "learning_rate",
+        "gamma",
+        "net_arch",
+        "batch_episodes",
+        "total_episodes",
+        "use_baseline",
+        "ent_coef",
+        "eval_mean_reward",
+        "eval_std_reward",
+        "eval_mean_length",
+        "eval_std_length",
+        "model_path",
+        "log_dir",
+    ]
+
+    file_exists = os.path.isfile(results_path)
+
+    with open(results_path, "a", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        if not file_exists:
+            writer.writeheader()
+
+        row = {
+            "config_id": cfg_tag,
+            "learning_rate": args.learning_rate,
+            "gamma": args.gamma,
+            "net_arch": getattr(args, "net_arch", None),
+            "batch_episodes": args.batch_episodes,
+            "total_episodes": args.total_episodes,
+            "use_baseline": getattr(args, "use_baseline", None),
+            "ent_coef": getattr(args, "ent_coef", None),
+            "eval_mean_reward": metrics["mean_reward"],
+            "eval_std_reward": metrics["std_reward"],
+            "eval_mean_length": metrics["mean_length"],
+            "eval_std_length": metrics["std_length"],
+            "model_path": model_path,
+            "log_dir": run_log_dir,
+        }
+
+        writer.writerow(row)
+        print(f"[REINFORCE] Appended summary row to {results_path}")
+
 
 
 # ---------------------------------------------------------------------------

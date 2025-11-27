@@ -200,3 +200,9 @@ In the report, we will:
   - Sensitivity to lr, gamma, net size, etc.
   - Stability vs instability (e.g. too high lr or too loose clip range).
 
+
+=============================
+python -m scripts.dqn_agent_ui \
+  --model-path models/dqn/dqn_ecotrack_DQN-06_lr0.0003_g0.995_bs64_buf100000.zip \
+  --episodes 5 \
+  --fps 4
