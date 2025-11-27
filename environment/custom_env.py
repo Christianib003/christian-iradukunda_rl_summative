@@ -71,13 +71,48 @@ class EcoTrackEnv(gym.Env):
         """
         Executes one time step within the environment.
         """
-        # TODO: Implement logic (Card 6, 7, 8, 9)
+        # --- 1. Movement Logic (Actions 0-3) ---
+        # 0: Up, 1: Down, 2: Left, 3: Right
+        direction = np.array([0, 0])
         
-        # Placeholder returns
-        observation = np.zeros(self.observation_space.shape, dtype=np.float32)
+        if action == 0:   # Up
+            direction = np.array([0, -1])
+        elif action == 1: # Down
+            direction = np.array([0, 1])
+        elif action == 2: # Left
+            direction = np.array([-1, 0])
+        elif action == 3: # Right
+            direction = np.array([1, 0])
+            
+        # Apply movement if it is a move action
+        if action in [0, 1, 2, 3]:
+            new_pos = self.agent_pos + direction
+            
+            # Boundary Check: Ensure new position is within grid limits
+            if (0 <= new_pos[0] < self.grid_size) and (0 <= new_pos[1] < self.grid_size):
+                self.agent_pos = new_pos
+            else:
+                # Wall hit: Agent stays in current position
+                pass
+        
+        # Action 6 (WAIT) is implicitly handled here by doing nothing to position
+        
+        # --- 2. Interaction Logic (Placeholder for Card 7) ---
+        # PICK_UP (4) and UNLOAD (5) will be added next
+        
+        # --- 3. Update Environment State (Placeholder for Card 8) ---
+        # Bin filling logic will go here
+        
+        # --- 4. Calculate Reward (Placeholder for Card 9) ---
         reward = 0
-        terminated = False
-        truncated = False
+        
+        # --- 5. Check Termination ---
+        self.current_step += 1
+        truncated = self.current_step >= self.max_steps
+        terminated = False  # Will be True if task completed (added later)
+        
+        # Get new observation
+        observation = self._get_obs()
         info = {}
         
         return observation, reward, terminated, truncated, info
