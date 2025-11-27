@@ -21,6 +21,8 @@ class EcoTrackEnv(gym.Env):
         self.k_nearest = 5  # Number of nearest bins to include in observation
         self.truck_capacity = 100.0
         self.bin_capacity = 10.0  # Max fill for a bin before overflow
+        self.fill_rate_normal = 0.1   # Amount per step
+        self.fill_rate_priority = 0.3 # High priority fills 3x faster
 
         # --- Action Space ---
         # 0: Up, 1: Down, 2: Left, 3: Right, 4: Pick Up, 5: Unload, 6: Wait
@@ -145,8 +147,8 @@ class EcoTrackEnv(gym.Env):
                 # Not at depot - Invalid action penalty later
                 pass
         
-        # --- 3. Update Environment State (Placeholder for Card 8) ---
-        # Bin filling logic will go here
+        # --- 3. Update Environment State ---
+        self._update_bins()
         
         # --- 4. Calculate Reward (Placeholder for Card 9) ---
         reward = 0
@@ -205,6 +207,25 @@ class EcoTrackEnv(gym.Env):
                 "is_priority": is_priority,
                 "capacity": self.bin_capacity
             })
+    
+    
+    def _update_bins(self):
+        """
+        Simulates waste generation.
+        """
+        for b in self.bins:
+            # Base fill rate based on priority
+            rate = self.fill_rate_priority if b["is_priority"] else self.fill_rate_normal
+            
+            # Add randomness (e.g., +/- 20% variability)
+            actual_fill = rate * np.random.uniform(0.8, 1.2)
+            
+            # Update bin
+            b["fill"] += actual_fill
+            
+            # Note: We do NOT cap the fill at capacity here.
+            # We allow it to go above capacity so we can detect "Overflow" 
+            # in the reward function (next card).
     
     
     def _get_obs(self):
