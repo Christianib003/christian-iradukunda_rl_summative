@@ -21,8 +21,9 @@ class EcoTrackEnv(gym.Env):
         self.k_nearest = 5  # Number of nearest bins to include in observation
         self.truck_capacity = 100.0
         self.bin_capacity = 10.0  # Max fill for a bin before overflow
-        self.fill_rate_normal = 0.1   # Amount per step
-        self.fill_rate_priority = 0.3 # High priority fills 3x faster
+        # Adjusted for better pacing
+        self.fill_rate_normal = 0.02    # Was 0.1 (Now much slower)
+        self.fill_rate_priority = 0.08   # Was 0.3 (Still 5x faster than normal, but manageable)
         
         
         # --- Reward Configuration ---
@@ -61,6 +62,19 @@ class EcoTrackEnv(gym.Env):
         # Rendering tools
         self.window = None
         self.clock = None
+        
+        # --- Rendering Configuration ---
+        self.cell_size = 64  # Pixels per grid cell
+        self.window_size = self.grid_size * self.cell_size
+        
+        # Colors (R, G, B)
+        self.COLOR_BG = (255, 255, 255)      # White
+        self.COLOR_GRID = (200, 200, 200)    # Light Grey
+        self.COLOR_DEPOT = (50, 50, 255)     # Blue
+        self.COLOR_BIN_LOW = (0, 255, 0)     # Green
+        self.COLOR_BIN_MED = (255, 255, 0)   # Yellow
+        self.COLOR_BIN_HIGH = (255, 0, 0)    # Red
+        self.COLOR_AGENT = (50, 50, 50)      # Dark Grey Truck
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
@@ -177,6 +191,16 @@ class EcoTrackEnv(gym.Env):
         }
         
         return observation, step_reward, terminated, truncated, info
+    
+    
+    def render(self):
+        """
+        Public method to trigger rendering.
+        """
+        if self.render_mode == "rgb_array":
+            return self._render_frame()
+        elif self.render_mode == "human":
+            self._render_frame()
 
             
     def _generate_state(self):
@@ -293,8 +317,128 @@ class EcoTrackEnv(gym.Env):
 
 
     def _render_frame(self):
-        # TODO: Implement Pygame rendering (Card 10)
-        pass
+        """
+        Internal method to do the actual drawing.
+        Combines Map, Truck, and HUD.
+        """
+        import pygame
+        
+        # 1. Initialize Pygame & Font (Ensure this happens in ALL modes)
+        if self.window is None and self.render_mode == "human":
+            pygame.init()
+            pygame.display.init()
+            self.window = pygame.display.set_mode(
+                (self.window_size, self.window_size)
+            )
+        
+        # Initialize font if it doesn't exist yet (works for rgb_array too)
+        if not hasattr(self, 'font'):
+            pygame.font.init()
+            self.font = pygame.font.SysFont("Arial", 20)
+        
+        if self.clock is None and self.render_mode == "human":
+            self.clock = pygame.time.Clock()
+
+        # 2. Create a canvas to draw on
+        canvas = pygame.Surface((self.window_size, self.window_size))
+        canvas.fill(self.COLOR_BG)
+        
+        # 3. Draw Depot
+        depot_rect = pygame.Rect(
+            self.depot_pos[0] * self.cell_size,
+            self.depot_pos[1] * self.cell_size,
+            self.cell_size,
+            self.cell_size
+        )
+        pygame.draw.rect(canvas, self.COLOR_DEPOT, depot_rect)
+        
+        # 4. Draw Bins
+        for b in self.bins:
+            x, y = b["pos"]
+            
+            # Determine color based on fill level
+            fill_ratio = b["fill"] / b["capacity"]
+            if fill_ratio < 0.5:
+                color = self.COLOR_BIN_LOW
+            elif fill_ratio < 1.0:
+                color = self.COLOR_BIN_MED
+            else:
+                color = self.COLOR_BIN_HIGH # Overflowing!
+            
+            # Draw bin
+            bin_size = int(self.cell_size * 0.6)
+            offset = int((self.cell_size - bin_size) / 2)
+            
+            bin_rect = pygame.Rect(
+                x * self.cell_size + offset,
+                y * self.cell_size + offset,
+                bin_size,
+                bin_size
+            )
+            pygame.draw.rect(canvas, color, bin_rect)
+            
+            # If High Priority, add border
+            if b["is_priority"]:
+                pygame.draw.rect(canvas, (0,0,0), bin_rect, 3)
+
+        # 5. Draw Grid Lines
+        for x in range(self.grid_size + 1):
+            pygame.draw.line(
+                canvas, 
+                self.COLOR_GRID, 
+                (0, x * self.cell_size), 
+                (self.window_size, x * self.cell_size)
+            )
+            pygame.draw.line(
+                canvas, 
+                self.COLOR_GRID, 
+                (x * self.cell_size, 0), 
+                (x * self.cell_size, self.window_size)
+            )
+
+        # 6. Draw Agent (Truck)
+        center_x = int(self.agent_pos[0] * self.cell_size + self.cell_size / 2)
+        center_y = int(self.agent_pos[1] * self.cell_size + self.cell_size / 2)
+        radius = int(self.cell_size * 0.35)
+        
+        pygame.draw.circle(canvas, self.COLOR_AGENT, (center_x, center_y), radius)
+        
+        if self.agent_load > 0:
+            load_radius = int(radius * 0.5)
+            pygame.draw.circle(canvas, (200, 200, 200), (center_x, center_y), load_radius)
+
+        # 7. Draw HUD (Heads Up Display) - NOW OUTSIDE THE 'HUMAN' CHECK
+        # Create a semi-transparent background for text
+        overlay = pygame.Surface((self.window_size, 60)) # 60px high
+        overlay.set_alpha(200) # Transparency
+        overlay.fill((0, 0, 0)) # Black background
+        canvas.blit(overlay, (0, 0)) # Draw at top
+
+        # Prepare text surfaces
+        text_color = (255, 255, 255)
+        
+        # Stats Text
+        overflow_count = sum(1 for b in self.bins if b["fill"] > b["capacity"])
+        stats_text = f"Step: {self.current_step} | Load: {int(self.agent_load)} | Overflows: {overflow_count}"
+        
+        # Render Text
+        label = self.font.render(stats_text, True, text_color)
+        canvas.blit(label, (10, 10))
+        
+        help_text = "Red=Overflow  Yellow=Full  Blue=Depot"
+        label2 = self.font.render(help_text, True, (200, 200, 200))
+        canvas.blit(label2, (10, 35))
+
+        # 8. Output to Screen (Only if human)
+        if self.render_mode == "human":
+            self.window.blit(canvas, canvas.get_rect())
+            pygame.event.pump()
+            pygame.display.update()
+            self.clock.tick(self.metadata["render_fps"])
+            
+        # 9. Return Array (For video recording)
+        return np.transpose(np.array(pygame.surfarray.pixels3d(canvas)), (1, 0, 2))
+
 
     def close(self):
         if self.window is not None:

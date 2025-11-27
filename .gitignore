@@ -1,5 +1,7 @@
 # Utility files
 project_tasks.md
+verify_*
+record_demo.py
 
 # Python
 __pycache__/
@@ -22,3 +24,4 @@ __pycache__/
 # Logs
 *.log
 tensorboard_logs/
+
