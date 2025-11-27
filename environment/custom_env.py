@@ -125,6 +125,64 @@ class EcoTrackEnv(gym.Env):
                 "is_priority": is_priority,
                 "capacity": self.bin_capacity
             })
+    
+    
+    def _get_obs(self):
+        # 1. Agent State
+        # Normalize position to [0, 1]
+        agent_x_norm = self.agent_pos[0] / self.grid_size
+        agent_y_norm = self.agent_pos[1] / self.grid_size
+        load_norm = self.agent_load / self.truck_capacity
+        time_norm = self.current_step / self.max_steps
+        
+        agent_state = np.array([agent_x_norm, agent_y_norm, load_norm, time_norm], dtype=np.float32)
+
+        # 2. Depot State
+        # Normalized Manhattan distance to depot
+        dist_depot = np.sum(np.abs(self.agent_pos - self.depot_pos)) / self.grid_size
+        depot_state = np.array([dist_depot], dtype=np.float32)
+
+        # 3. Nearest Bins State (The complex part)
+        # Calculate distances to all bins
+        bin_distances = []
+        for i, b in enumerate(self.bins):
+            dist = np.sum(np.abs(self.agent_pos - b["pos"]))
+            bin_distances.append((dist, i))
+        
+        # Sort by distance and take top K
+        bin_distances.sort(key=lambda x: x[0])
+        nearest_indices = [x[1] for x in bin_distances[:self.k_nearest]]
+        
+        nearest_bins_data = []
+        for idx in nearest_indices:
+            b = self.bins[idx]
+            # Relative position (dx, dy) normalized
+            dx = (b["pos"][0] - self.agent_pos[0]) / self.grid_size
+            dy = (b["pos"][1] - self.agent_pos[1]) / self.grid_size
+            fill_ratio = b["fill"] / b["capacity"]
+            is_prio = float(b["is_priority"])
+            nearest_bins_data.extend([dx, dy, fill_ratio, is_prio])
+            
+        # If we have fewer than K bins (edge case), pad with zeros
+        while len(nearest_bins_data) < self.k_nearest * 4:
+            nearest_bins_data.extend([0, 0, 0, 0])
+            
+        bins_state = np.array(nearest_bins_data, dtype=np.float32)
+
+        # 4. Global State
+        # Fraction of bins overflowing
+        overflow_count = sum(1 for b in self.bins if b["fill"] > b["capacity"])
+        overflow_ratio = overflow_count / self.n_bins
+        
+        # Fraction of high priority bins that are currently empty (serviced)
+        high_prio_bins = [b for b in self.bins if b["is_priority"]]
+        serviced_high_prio = sum(1 for b in high_prio_bins if b["fill"] <= 0)
+        prio_clean_ratio = serviced_high_prio / len(high_prio_bins) if high_prio_bins else 1.0
+        
+        global_state = np.array([overflow_ratio, prio_clean_ratio], dtype=np.float32)
+
+        # Concatenate all
+        return np.concatenate([agent_state, depot_state, bins_state, global_state])
 
 
     def _render_frame(self):
