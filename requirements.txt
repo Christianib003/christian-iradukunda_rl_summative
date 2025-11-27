@@ -1,9 +1,0 @@
-gymnasium
-stable-baselines3[extra]
-shimmy
-pygame
-numpy
-pandas
-matplotlib
-tensorboard
-imageio
