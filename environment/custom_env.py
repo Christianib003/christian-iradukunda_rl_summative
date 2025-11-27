@@ -61,6 +61,19 @@ class EcoTrackEnv(gym.Env):
         # Rendering tools
         self.window = None
         self.clock = None
+        
+        # --- Rendering Configuration ---
+        self.cell_size = 64  # Pixels per grid cell
+        self.window_size = self.grid_size * self.cell_size
+        
+        # Colors (R, G, B)
+        self.COLOR_BG = (255, 255, 255)      # White
+        self.COLOR_GRID = (200, 200, 200)    # Light Grey
+        self.COLOR_DEPOT = (50, 50, 255)     # Blue
+        self.COLOR_BIN_LOW = (0, 255, 0)     # Green
+        self.COLOR_BIN_MED = (255, 255, 0)   # Yellow
+        self.COLOR_BIN_HIGH = (255, 0, 0)    # Red
+        self.COLOR_AGENT = (50, 50, 50)      # Dark Grey Truck
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
@@ -177,6 +190,16 @@ class EcoTrackEnv(gym.Env):
         }
         
         return observation, step_reward, terminated, truncated, info
+    
+    
+    def render(self):
+        """
+        Public method to trigger rendering.
+        """
+        if self.render_mode == "rgb_array":
+            return self._render_frame()
+        elif self.render_mode == "human":
+            self._render_frame()
 
             
     def _generate_state(self):
@@ -293,8 +316,88 @@ class EcoTrackEnv(gym.Env):
 
 
     def _render_frame(self):
-        # TODO: Implement Pygame rendering (Card 10)
-        pass
+        import pygame
+        
+        # 1. Initialize Pygame Window (only once)
+        if self.window is None and self.render_mode == "human":
+            pygame.init()
+            pygame.display.init()
+            self.window = pygame.display.set_mode(
+                (self.window_size, self.window_size)
+            )
+        
+        if self.clock is None and self.render_mode == "human":
+            self.clock = pygame.time.Clock()
+
+        # Create a canvas to draw on
+        canvas = pygame.Surface((self.window_size, self.window_size))
+        canvas.fill(self.COLOR_BG)
+        
+        # 2. Draw Depot
+        # Convert grid coords to pixel coords
+        depot_rect = pygame.Rect(
+            self.depot_pos[0] * self.cell_size,
+            self.depot_pos[1] * self.cell_size,
+            self.cell_size,
+            self.cell_size
+        )
+        pygame.draw.rect(canvas, self.COLOR_DEPOT, depot_rect)
+        
+        # 3. Draw Bins
+        for b in self.bins:
+            x, y = b["pos"]
+            
+            # Determine color based on fill level
+            fill_ratio = b["fill"] / b["capacity"]
+            if fill_ratio < 0.5:
+                color = self.COLOR_BIN_LOW
+            elif fill_ratio < 1.0:
+                color = self.COLOR_BIN_MED
+            else:
+                color = self.COLOR_BIN_HIGH # Overflowing!
+            
+            # Draw bin as a smaller rectangle in the center of the cell
+            bin_size = int(self.cell_size * 0.6)
+            offset = int((self.cell_size - bin_size) / 2)
+            
+            bin_rect = pygame.Rect(
+                x * self.cell_size + offset,
+                y * self.cell_size + offset,
+                bin_size,
+                bin_size
+            )
+            pygame.draw.rect(canvas, color, bin_rect)
+            
+            # If High Priority, add a thick black border
+            if b["is_priority"]:
+                pygame.draw.rect(canvas, (0,0,0), bin_rect, 3)
+
+        # 4. Draw Grid Lines
+        for x in range(self.grid_size + 1):
+            pygame.draw.line(
+                canvas, 
+                self.COLOR_GRID, 
+                (0, x * self.cell_size), 
+                (self.window_size, x * self.cell_size)
+            )
+            pygame.draw.line(
+                canvas, 
+                self.COLOR_GRID, 
+                (x * self.cell_size, 0), 
+                (x * self.cell_size, self.window_size)
+            )
+
+        # --- Dynamic Elements (Agent) will go here in Card 11 ---
+
+        # 5. Output to Screen
+        if self.render_mode == "human":
+            self.window.blit(canvas, canvas.get_rect())
+            pygame.event.pump()
+            pygame.display.update()
+            self.clock.tick(self.metadata["render_fps"])
+            
+        return np.transpose(np.array(pygame.surfarray.pixels3d(canvas)), (1, 0, 2))
+
 
     def close(self):
         if self.window is not None:
