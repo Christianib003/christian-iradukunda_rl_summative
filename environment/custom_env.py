@@ -323,9 +323,13 @@ class EcoTrackEnv(gym.Env):
         if self.window is None and self.render_mode == "human":
             pygame.init()
             pygame.display.init()
+            pygame.font.init()
             self.window = pygame.display.set_mode(
                 (self.window_size, self.window_size)
             )
+            
+            # Create a font object (Size 20)
+            self.font = pygame.font.SysFont("Arial", 20)
         
         if self.clock is None and self.render_mode == "human":
             self.clock = pygame.time.Clock()
@@ -402,6 +406,32 @@ class EcoTrackEnv(gym.Env):
             # visual indicator that truck is carrying something
             pygame.draw.circle(canvas, (200, 200, 200), (center_x, center_y), load_radius)
 
+        # --- 6. Draw HUD (Heads Up Display) ---
+        # Create a semi-transparent background for text
+        if self.render_mode == "human":
+            overlay = pygame.Surface((self.window_size, 60)) # 60px high
+            overlay.set_alpha(200) # Transparency
+            overlay.fill((0, 0, 0)) # Black background
+            canvas.blit(overlay, (0, 0)) # Draw at top
+
+            # Prepare text surfaces
+            text_color = (255, 255, 255)
+
+            # Line 1: Stats
+            info_text = f"Step: {self.current_step}/{self.max_steps}  Load: {self.agent_load:.1f}/{self.truck_capacity}  Reward: {self.reward_collect_scale:.1f}" # Note: We don't have cumulative reward tracked inside env, but that's ok.
+
+            # For better info, let's just show collected amount or Overflow count
+            overflow_count = sum(1 for b in self.bins if b["fill"] > b["capacity"])
+            stats_text = f"Step: {self.current_step} | Load: {int(self.agent_load)} | Overflows: {overflow_count}"
+
+            label = self.font.render(stats_text, True, text_color)
+            canvas.blit(label, (10, 10))
+
+            # Line 2: Instructions (Optional, looks pro)
+            help_text = "Red=Overflow  Yellow=Full  Blue=Depot"
+            label2 = self.font.render(help_text, True, (200, 200, 200))
+            canvas.blit(label2, (10, 35))
+        
         # 5. Output to Screen
         if self.render_mode == "human":
             self.window.blit(canvas, canvas.get_rect())
