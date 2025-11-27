@@ -19,6 +19,8 @@ class EcoTrackEnv(gym.Env):
         self.n_high_priority = n_high_priority
         self.render_mode = render_mode
         self.k_nearest = 5  # Number of nearest bins to include in observation
+        self.truck_capacity = 100.0
+        self.bin_capacity = 10.0  # Max fill for a bin before overflow
 
         # --- Action Space ---
         # 0: Up, 1: Down, 2: Left, 3: Right, 4: Pick Up, 5: Unload, 6: Wait
@@ -49,18 +51,21 @@ class EcoTrackEnv(gym.Env):
         self.clock = None
 
     def reset(self, seed=None, options=None):
-        """
-        Resets the environment to an initial state and returns the initial observation.
-        """
         super().reset(seed=seed)
         
-        # TODO: Implement state initialization (Card 4)
+        # Initialize internal state
+        self.current_step = 0
+        self.agent_load = 0.0
         
-        # Placeholder observation
-        observation = np.zeros(self.observation_space.shape, dtype=np.float32)
+        # Generate new map layout
+        self._generate_state()
+        
+        # Get initial observation
+        observation = self._get_obs()
         info = {}
         
         return observation, info
+
 
     def step(self, action):
         """
@@ -85,6 +90,42 @@ class EcoTrackEnv(gym.Env):
             return self._render_frame()
         elif self.render_mode == "human":
             self._render_frame()
+            
+    def _generate_state(self):
+        """
+        Randomly places the depot and bins on the grid.
+        """
+        # 1. Place Depot (randomly)
+        self.depot_pos = np.random.randint(0, self.grid_size, size=2)
+        
+        # 2. Place Agent (at Depot initially)
+        self.agent_pos = self.depot_pos.copy()
+        
+        # 3. Place Bins
+        # We want unique locations for bins, avoiding the depot
+        available_locs = []
+        for x in range(self.grid_size):
+            for y in range(self.grid_size):
+                if not np.array_equal([x, y], self.depot_pos):
+                    available_locs.append([x, y])
+        
+        # Select random locations for bins
+        bin_indices = np.random.choice(len(available_locs), self.n_bins, replace=False)
+        bin_locs = [available_locs[i] for i in bin_indices]
+        
+        self.bins = []
+        for i, loc in enumerate(bin_locs):
+            is_priority = 1 if i < self.n_high_priority else 0
+            # Initial random fill between 0.1 and 0.5 (10% to 50%)
+            initial_fill = np.random.uniform(0.1, 0.5) * self.bin_capacity
+            
+            self.bins.append({
+                "pos": np.array(loc),
+                "fill": initial_fill,
+                "is_priority": is_priority,
+                "capacity": self.bin_capacity
+            })
+
 
     def _render_frame(self):
         # TODO: Implement Pygame rendering (Card 10)
