@@ -98,7 +98,52 @@ class EcoTrackEnv(gym.Env):
         # Action 6 (WAIT) is implicitly handled here by doing nothing to position
         
         # --- 2. Interaction Logic (Placeholder for Card 7) ---
-        # PICK_UP (4) and UNLOAD (5) will be added next
+        # --- 2. Interaction Logic ---
+        reward = 0  # Initialize reward for this step
+        
+        # Action 4: PICK_UP
+        if action == 4:
+            # Check if there is a bin at the current location
+            bin_at_loc = None
+            for b in self.bins:
+                if np.array_equal(b["pos"], self.agent_pos):
+                    bin_at_loc = b
+                    break
+            
+            if bin_at_loc:
+                # Calculate how much space we have left in the truck
+                space_left = self.truck_capacity - self.agent_load
+                
+                # We can take min(space_left, amount_in_bin)
+                amount_to_take = min(space_left, bin_at_loc["fill"])
+                
+                if amount_to_take > 0:
+                    # Perform transfer
+                    self.agent_load += amount_to_take
+                    bin_at_loc["fill"] -= amount_to_take
+                    
+                    # Reward for collection (will be tuned in Card 9)
+                    # For now, just tracking state changes
+                else:
+                    # Bin empty or Truck full - Invalid action penalty later
+                    pass
+            else:
+                # No bin here - Invalid action penalty later
+                pass
+
+        # Action 5: UNLOAD
+        elif action == 5:
+            # Check if at Depot
+            if np.array_equal(self.agent_pos, self.depot_pos):
+                if self.agent_load > 0:
+                    # Successful unload
+                    self.agent_load = 0.0
+                else:
+                    # Already empty - minor waste of time
+                    pass
+            else:
+                # Not at depot - Invalid action penalty later
+                pass
         
         # --- 3. Update Environment State (Placeholder for Card 8) ---
         # Bin filling logic will go here
