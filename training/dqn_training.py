@@ -1,33 +1,3 @@
-"""
-DQN training script for the EcoTrack environment.
-
-Card 11 – Implement DQN Training Script
-
-Features:
-- Configurable hyperparameters via argparse.
-- Option to select a predefined config from docs/hyperparameter_plan.md
-  using --config-id (e.g. DQN-01, DQN-02, ...).
-- Logs per-episode metrics (reward, length, timesteps) via Monitor into CSV.
-- Saves trained models under models/dqn/ with meaningful filenames.
-- Provides a quick evaluation after training.
-
-Example usages (from project root):
-
-    # Use a predefined config (DQN-01 from hyperparameter_plan.md)
-    python -m training.dqn_training \
-        --config-id DQN-01 \
-        --run-name DQN-01 \
-        --total-timesteps 50000
-
-    # Custom config (no preset), short smoke test
-    python -m training.dqn_training \
-        --run-name custom_smoke \
-        --total-timesteps 5000 \
-        --learning-rate 0.001 \
-        --gamma 0.99 \
-        --net-arch 128,128
-"""
-
 import os
 import argparse
 import csv
@@ -44,12 +14,8 @@ from stable_baselines3.common.monitor import Monitor
 from environment.custom_env import EcoTrackEnv
 
 
-# ---------------------------------------------------------------------------
-# Predefined DQN Hyperparameter Configs (from docs/hyperparameter_plan.md)
-# ---------------------------------------------------------------------------
 
 DQN_PRESETS: Dict[str, Dict[str, Any]] = {
-    # ID: DQN-01 – Baseline (matches our earlier defaults)
     "DQN-01": dict(
         learning_rate=1e-3,
         gamma=0.99,
@@ -59,7 +25,6 @@ DQN_PRESETS: Dict[str, Dict[str, Any]] = {
         exploration_fraction=0.20,
         exploration_final_eps=0.05,
     ),
-    # DQN-02 – lower lr, slower decay
     "DQN-02": dict(
         learning_rate=3e-4,
         gamma=0.99,
@@ -69,7 +34,6 @@ DQN_PRESETS: Dict[str, Dict[str, Any]] = {
         exploration_fraction=0.30,
         exploration_final_eps=0.05,
     ),
-    # DQN-03 – higher lr
     "DQN-03": dict(
         learning_rate=3e-3,
         gamma=0.99,
@@ -79,7 +43,6 @@ DQN_PRESETS: Dict[str, Dict[str, Any]] = {
         exploration_fraction=0.20,
         exploration_final_eps=0.05,
     ),
-    # DQN-04 – smaller net, smaller buffer, myopic gamma
     "DQN-04": dict(
         learning_rate=1e-3,
         gamma=0.95,
@@ -89,7 +52,6 @@ DQN_PRESETS: Dict[str, Dict[str, Any]] = {
         exploration_fraction=0.25,
         exploration_final_eps=0.10,
     ),
-    # DQN-05 – big net, big buffer, longer horizon
     "DQN-05": dict(
         learning_rate=1e-3,
         gamma=0.995,
@@ -99,7 +61,6 @@ DQN_PRESETS: Dict[str, Dict[str, Any]] = {
         exploration_fraction=0.20,
         exploration_final_eps=0.05,
     ),
-    # DQN-06 – conservative lr with big net + horizon
     "DQN-06": dict(
         learning_rate=3e-4,
         gamma=0.995,
@@ -109,7 +70,6 @@ DQN_PRESETS: Dict[str, Dict[str, Any]] = {
         exploration_fraction=0.30,
         exploration_final_eps=0.05,
     ),
-    # DQN-07 – smaller net, faster decay
     "DQN-07": dict(
         learning_rate=1e-3,
         gamma=0.99,
@@ -119,7 +79,6 @@ DQN_PRESETS: Dict[str, Dict[str, Any]] = {
         exploration_fraction=0.10,
         exploration_final_eps=0.05,
     ),
-    # DQN-08 – large net, large batch, more stochastic exploration
     "DQN-08": dict(
         learning_rate=1e-3,
         gamma=0.99,
@@ -129,7 +88,6 @@ DQN_PRESETS: Dict[str, Dict[str, Any]] = {
         exploration_fraction=0.30,
         exploration_final_eps=0.10,
     ),
-    # DQN-09 – myopic gamma, large buffer, conservative lr
     "DQN-09": dict(
         learning_rate=3e-4,
         gamma=0.95,
@@ -139,7 +97,6 @@ DQN_PRESETS: Dict[str, Dict[str, Any]] = {
         exploration_fraction=0.15,
         exploration_final_eps=0.05,
     ),
-    # DQN-10 – aggressive lr, small net, high batch size
     "DQN-10": dict(
         learning_rate=3e-3,
         gamma=0.99,
@@ -152,21 +109,8 @@ DQN_PRESETS: Dict[str, Dict[str, Any]] = {
 }
 
 
-# ---------------------------------------------------------------------------
-# Environment factory
-# ---------------------------------------------------------------------------
 
 def make_ecotrack_env(seed: Optional[int] = None, monitor_file: Optional[str] = None) -> Monitor:
-    """
-    Create a single EcoTrackEnv wrapped in a Monitor for SB3.
-
-    Args:
-        seed: optional random seed for reproducibility.
-        monitor_file: path to CSV file where Monitor will log per-episode stats.
-
-    Returns:
-        A Monitor-wrapped Gymnasium environment.
-    """
     env = EcoTrackEnv(
         grid_width=10,
         grid_height=10,
@@ -181,15 +125,7 @@ def make_ecotrack_env(seed: Optional[int] = None, monitor_file: Optional[str] = 
     return Monitor(env, filename=monitor_file)
 
 
-# ---------------------------------------------------------------------------
-# Training / evaluation utilities
-# ---------------------------------------------------------------------------
-
 def apply_preset_to_args(args: argparse.Namespace) -> None:
-    """
-    If args.config_id is set and known, override hyperparameters in args
-    with values from DQN_PRESETS.
-    """
     if not args.config_id:
         return
 
@@ -203,56 +139,39 @@ def apply_preset_to_args(args: argparse.Namespace) -> None:
     preset = DQN_PRESETS[config_id]
     print(f"[DQN] Applying preset '{config_id}': {preset}")
 
-    # Override relevant fields on args
     args.learning_rate = preset["learning_rate"]
     args.gamma = preset["gamma"]
     args.buffer_size = preset["buffer_size"]
     args.batch_size = preset["batch_size"]
     args.exploration_fraction = preset["exploration_fraction"]
     args.exploration_final_eps = preset["exploration_final_eps"]
-    # Net arch is handled as a list, not a string
     args.net_arch = preset["net_arch"]
     args.config_id = config_id  # normalized
 
 
 def train_dqn(args: argparse.Namespace) -> str:
-    """
-    Train a DQN agent on EcoTrackEnv using Stable-Baselines3.
-
-    Args:
-        args: parsed and possibly preset-applied command-line arguments.
-
-    Returns:
-        Path to the saved model file.
-    """
-    # Compose run id
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    # Use config_id in run_name if provided
     base_run_name = args.run_name or "dqn_run"
     if args.config_id:
         base_run_name = f"{base_run_name}_{args.config_id}"
 
     run_id = f"{base_run_name}_{timestamp}"
 
-    # Paths
-    base_log_dir = args.log_dir  # e.g. logs/dqn
+    base_log_dir = args.log_dir
     run_log_dir = os.path.join(base_log_dir, run_id)
     os.makedirs(run_log_dir, exist_ok=True)
 
     model_dir = args.model_dir
     os.makedirs(model_dir, exist_ok=True)
 
-    # CSV for Monitor (per-episode metrics)
     monitor_file = os.path.join(run_log_dir, "monitor.csv")
 
-    # Build vectorized environment (single env, with Monitor)
     def _init_env():
         return make_ecotrack_env(seed=args.seed, monitor_file=monitor_file)
 
     env = DummyVecEnv([_init_env])
 
-    # DQN hyperparameters (from args)
     dqn_kwargs = dict(
         learning_rate=args.learning_rate,
         gamma=args.gamma,
@@ -266,7 +185,6 @@ def train_dqn(args: argparse.Namespace) -> str:
         verbose=1,
     )
 
-    # Policy kwargs (network architecture)
     policy_kwargs = {}
     if args.net_arch is not None:
         policy_kwargs["net_arch"] = args.net_arch
@@ -297,8 +215,6 @@ def train_dqn(args: argparse.Namespace) -> str:
         progress_bar=True,
     )
 
-    # Save model – include config_id and key hypers in filename
-    # Example: dqn_ecotrack_DQN-01_lr1e-3_g0.99_2025...zip
     cfg_tag = args.config_id or "custom"
     model_filename = (
         f"dqn_ecotrack_{cfg_tag}"
@@ -373,10 +289,6 @@ def append_dqn_results_row(
     model_path: str,
     metrics: dict,
     ):
-    """
-    Append a single summary row for a DQN run to results/dqn_results.csv.
-    Creates the file + header if it does not exist.
-    """
     os.makedirs(os.path.dirname(results_path), exist_ok=True)
 
     fieldnames = [
@@ -427,16 +339,11 @@ def append_dqn_results_row(
   
 
 
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
-
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Train a DQN agent on the EcoTrack environment."
     )
 
-    # Optional preset config ID (DQN-01 ... DQN-10)
     parser.add_argument(
         "--config-id",
         type=str,
@@ -444,7 +351,6 @@ def parse_args() -> argparse.Namespace:
         help="Predefined DQN config ID (e.g. DQN-01, DQN-02). Overrides matching hyperparameters.",
     )
 
-    # Core training settings
     parser.add_argument(
         "--total-timesteps",
         type=int,
@@ -464,7 +370,6 @@ def parse_args() -> argparse.Namespace:
         help="Logical name for this run (used in directory and filenames).",
     )
 
-    # Paths
     parser.add_argument(
         "--log-dir",
         type=str,
@@ -478,7 +383,6 @@ def parse_args() -> argparse.Namespace:
         help="Directory to save DQN models.",
     )
 
-    # DQN hyperparameters (can be overridden by presets)
     parser.add_argument(
         "--learning-rate",
         type=float,
@@ -562,10 +466,8 @@ def parse_args() -> argparse.Namespace:
 def main():
     args = parse_args()
 
-    # 1) Apply preset if --config-id is provided (DQN-01 .. DQN-10)
     apply_preset_to_args(args)
 
-    # 2) If net_arch is a string (from CLI), convert "128,128" → [128, 128]
     if isinstance(args.net_arch, str) and args.net_arch is not None:
         layers = []
         for h in args.net_arch.split(","):

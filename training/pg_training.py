@@ -1,20 +1,3 @@
-"""
-Policy Gradient training script for the EcoTrack environment.
-
-Card 12 – Implement Policy Gradient Training Script
-
-Supports:
-- PPO  (Stable-Baselines3)
-- A2C  (Stable-Baselines3)
-- REINFORCE (custom implementation)
-
-Features:
-- Algorithm chosen via --algo (ppo, a2c, reinforce)
-- Hyperparameter presets chosen via --config-id (PPO-01..10, A2C-01..10, REIN-01..10)
-- Training metrics logged via Monitor into CSV
-- Models saved under models/pg/ with algorithm + key hyperparameters in filenames (no timestamps)
-- Short evaluation run after training
-"""
 
 import os
 import argparse
@@ -38,9 +21,6 @@ import torch.optim as optim
 from torch.distributions import Categorical
 
 
-# ---------------------------------------------------------------------------
-# Predefined Hyperparameter Configs (aligned with hyperparameter_plan.md)
-# ---------------------------------------------------------------------------
 
 PPO_PRESETS: Dict[str, Dict[str, Any]] = {
     "PPO-01": dict(
@@ -229,7 +209,6 @@ A2C_PRESETS: Dict[str, Dict[str, Any]] = {
 }
 
 REIN_PRESETS: Dict[str, Dict[str, Any]] = {
-    # REINFORCE presets based on the earlier grid:
     "REIN-01": dict(
         learning_rate=1e-3,
         gamma=0.99,
@@ -313,9 +292,6 @@ REIN_PRESETS: Dict[str, Dict[str, Any]] = {
 }
 
 
-# ---------------------------------------------------------------------------
-# Environment factory
-# ---------------------------------------------------------------------------
 
 def make_ecotrack_env(seed: Optional[int] = None, monitor_file: Optional[str] = None) -> Monitor:
     """
@@ -334,15 +310,7 @@ def make_ecotrack_env(seed: Optional[int] = None, monitor_file: Optional[str] = 
     return Monitor(env, filename=monitor_file)
 
 
-# ---------------------------------------------------------------------------
-# Preset application
-# ---------------------------------------------------------------------------
-
 def apply_preset_to_args(args: argparse.Namespace) -> None:
-    """
-    If args.config_id is set, override hyperparameters in args using the
-    corresponding preset for the chosen algorithm.
-    """
     if not args.config_id:
         return
 
@@ -388,10 +356,6 @@ def apply_preset_to_args(args: argparse.Namespace) -> None:
     args.config_id = config_id  # normalized
 
 
-# ---------------------------------------------------------------------------
-# SB3 PPO / A2C training & evaluation
-# ---------------------------------------------------------------------------
-
 def train_sb3_pg(args: argparse.Namespace) -> str:
     """
     Train PPO or A2C using Stable-Baselines3.
@@ -400,19 +364,16 @@ def train_sb3_pg(args: argparse.Namespace) -> str:
     if algo not in {"ppo", "a2c"}:
         raise ValueError("train_sb3_pg called with non-SB3 algo")
 
-    # Timestamp only for log folder
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     base_run_name = args.run_name or f"{algo}_run"
     if args.config_id:
         base_run_name = f"{base_run_name}_{args.config_id}"
     run_id = f"{base_run_name}_{timestamp}"
 
-    # Logs
-    base_log_dir = args.log_dir  # e.g. logs/pg
+    base_log_dir = args.log_dir 
     run_log_dir = os.path.join(base_log_dir, algo, run_id)
     os.makedirs(run_log_dir, exist_ok=True)
 
-    # Models
     model_dir = args.model_dir or os.path.join("models", "pg")
     os.makedirs(model_dir, exist_ok=True)
 
@@ -506,9 +467,6 @@ def train_sb3_pg(args: argparse.Namespace) -> str:
 
 
 def evaluate_sb3_pg(model_path: str, algo: str, n_episodes: int = 5, seed: Optional[int] = 123) -> dict:
-    """
-    Evaluate a PPO/A2C model for a few episodes and return summary metrics.
-    """
     algo = algo.lower()
     if algo == "ppo":
         ModelClass = PPO
@@ -575,10 +533,6 @@ def evaluate_sb3_pg(model_path: str, algo: str, n_episodes: int = 5, seed: Optio
 
 
 
-# ---------------------------------------------------------------------------
-# REINFORCE implementation
-# ---------------------------------------------------------------------------
-
 class PolicyNet(nn.Module):
     def __init__(self, obs_dim: int, act_dim: int, hidden_sizes: List[int]):
         super().__init__()
@@ -605,9 +559,6 @@ class PolicyNet(nn.Module):
 
 
 def compute_returns(rewards: List[float], gamma: float) -> List[float]:
-    """
-    Compute discounted returns for a single episode.
-    """
     G = 0.0
     returns = []
     for r in reversed(rewards):
@@ -617,13 +568,6 @@ def compute_returns(rewards: List[float], gamma: float) -> List[float]:
 
 
 def train_reinforce(args: argparse.Namespace) -> str:
-    """
-    Custom REINFORCE training loop.
-
-    total_episodes controls how many episodes to collect.
-    batch_episodes controls how many episodes per policy update.
-    """
-    # Timestamp only for log folder
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     base_run_name = args.run_name or "reinforce_run"
     if args.config_id:
@@ -668,7 +612,6 @@ def train_reinforce(args: argparse.Namespace) -> str:
 
     all_returns = []
 
-    # buffers for batch
     batch_log_probs: List[torch.Tensor] = []
     batch_entropies: List[torch.Tensor] = []
     batch_returns: List[float] = []
@@ -690,35 +633,29 @@ def train_reinforce(args: argparse.Namespace) -> str:
             ep_log_probs.append(log_prob)
             ep_entropies.append(entropy)
 
-        # Compute returns for this episode
         ep_returns = compute_returns(ep_rewards, gamma)
         all_returns.append(sum(ep_rewards))
 
-        # Add to batch
         batch_log_probs.extend(ep_log_probs)
         batch_entropies.extend(ep_entropies)
         batch_returns.extend(ep_returns)
 
-        # Logging
         if ep % 10 == 0:
             avg_ret = np.mean(all_returns[-10:])
             print(f"[REINFORCE] Episode {ep}/{total_episodes} | "
                   f"avg return (last 10) = {avg_ret:.2f}")
 
-        # Perform update every batch_episodes
         if ep % batch_episodes == 0:
             log_probs_tensor = torch.stack(batch_log_probs)
             returns_tensor = torch.tensor(batch_returns, dtype=torch.float32)
             entropies_tensor = torch.stack(batch_entropies)
 
-            # Optional baseline: simple mean-return baseline
             if use_baseline:
                 baseline = returns_tensor.mean()
                 advantages = returns_tensor - baseline
             else:
                 advantages = returns_tensor
 
-            # Normalize advantages to improve stability
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
             policy_loss = -(advantages * log_probs_tensor).mean()
@@ -730,12 +667,10 @@ def train_reinforce(args: argparse.Namespace) -> str:
             loss.backward()
             optimizer.step()
 
-            # Clear batch buffers
             batch_log_probs.clear()
             batch_entropies.clear()
             batch_returns.clear()
 
-    # Quick evaluation with the trained policy
     eval_episodes = args.eval_episodes
     rewards = []
     lengths = []
@@ -746,7 +681,6 @@ def train_reinforce(args: argparse.Namespace) -> str:
         ep_rew = 0.0
         ep_len = 0
         while not (done or truncated):
-            # Use greedy action selection (argmax) at eval time
             x = torch.tensor(obs, dtype=torch.float32).unsqueeze(0)
             logits = policy(x)
             action = torch.argmax(logits, dim=-1).item()
@@ -757,7 +691,6 @@ def train_reinforce(args: argparse.Namespace) -> str:
         lengths.append(ep_len)
         print(f"[Eval-REINFORCE] Episode {ep + 1}: reward={ep_rew:.2f}, length={ep_len}")
 
-    # --- summary metrics ---
     mean_r = float(np.mean(rewards))
     std_r = float(np.std(rewards))
     mean_l = float(np.mean(lengths))
@@ -781,7 +714,6 @@ def train_reinforce(args: argparse.Namespace) -> str:
 
     env.close()
 
-    # Save model (state_dict) – file name encodes config + key hypers (no timestamp)
     cfg_tag = args.config_id or "custom"
     model_filename = (
         f"reinforce_ecotrack_{cfg_tag}"
@@ -796,7 +728,6 @@ def train_reinforce(args: argparse.Namespace) -> str:
     print(f"[REINFORCE] Saved policy state_dict to: {model_path}")
     print(f"[REINFORCE] Episode metrics CSV (Monitor): {monitor_file}")
 
-    # --- append results row for Card 14 ---
     results_path = os.path.join("results", "reinforce_results.csv")
     append_reinforce_results_row(
         results_path=results_path,
@@ -819,10 +750,6 @@ def append_reinforce_results_row(
     model_path: str,
     metrics: dict,
 ):
-    """
-    Append a single summary row for a REINFORCE run to results/reinforce_results.csv.
-    Creates the file + header if it does not exist.
-    """
     os.makedirs(os.path.dirname(results_path), exist_ok=True)
 
     fieldnames = [
@@ -878,10 +805,6 @@ def append_pg_results_row(
     model_path: str,
     metrics: dict,
 ):
-    """
-    Append a summary row for a PPO or A2C run to the given CSV.
-    Columns mirror the DQN/REINFORCE style: eval_mean_reward, model_path, etc.
-    """
     os.makedirs(os.path.dirname(results_path), exist_ok=True)
 
     fieldnames = [
@@ -907,7 +830,6 @@ def append_pg_results_row(
 
     file_exists = os.path.isfile(results_path)
 
-    # Represent net_arch nicely
     net_arch_val = getattr(args, "net_arch", None)
     if isinstance(net_arch_val, (list, tuple)):
         net_arch_str = "-".join(str(h) for h in net_arch_val)
@@ -953,10 +875,7 @@ def append_a2c_results_row(
     model_path: str,
     metrics: dict,
 ):
-    """
-    Append a single summary row for an A2C run to results/a2c_results.csv.
-    Creates the file + header if it does not exist.
-    """
+
     os.makedirs(os.path.dirname(results_path), exist_ok=True)
 
     fieldnames = [
@@ -1004,9 +923,6 @@ def append_a2c_results_row(
         print(f"[A2C] Appended summary row to {results_path}")
 
 
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -1028,7 +944,6 @@ def parse_args() -> argparse.Namespace:
         help="Optional preset ID (PPO-01..10, A2C-01..10, REIN-01..10).",
     )
 
-    # Shared
     parser.add_argument(
         "--seed",
         type=int,
@@ -1054,7 +969,6 @@ def parse_args() -> argparse.Namespace:
         help="Directory to save models (all PG algorithms).",
     )
 
-    # SB3 training timesteps
     parser.add_argument(
         "--total-timesteps",
         type=int,
@@ -1062,7 +976,6 @@ def parse_args() -> argparse.Namespace:
         help="Total timesteps for PPO/A2C.",
     )
 
-    # REINFORCE episodes
     parser.add_argument(
         "--total-episodes",
         type=int,
@@ -1081,7 +994,6 @@ def parse_args() -> argparse.Namespace:
         help="Use a simple mean-return baseline in REINFORCE.",
     )
 
-    # Common hyperparameters
     parser.add_argument(
         "--learning-rate",
         type=float,
@@ -1101,7 +1013,6 @@ def parse_args() -> argparse.Namespace:
         help="Comma-separated hidden layer sizes, e.g. '64,64' or '128,128'.",
     )
 
-    # PPO/A2C specific
     parser.add_argument(
         "--n-steps",
         type=int,
@@ -1127,7 +1038,6 @@ def parse_args() -> argparse.Namespace:
         help="Value function coefficient (A2C/PPO).",
     )
 
-    # PPO-specific
     parser.add_argument(
         "--batch-size",
         type=int,
@@ -1147,7 +1057,6 @@ def parse_args() -> argparse.Namespace:
         help="PPO epochs per update.",
     )
 
-    # Evaluation
     parser.add_argument(
         "--eval-episodes",
         type=int,
@@ -1166,21 +1075,17 @@ def parse_args() -> argparse.Namespace:
 def main():
     args = parse_args()
 
-    # Parse net_arch string into list[int], if provided
     if args.net_arch is not None:
         try:
             args.net_arch = [int(x.strip()) for x in args.net_arch.split(",") if x.strip()]
         except ValueError:
             raise ValueError(f"Invalid --net-arch value: {args.net_arch}. Use e.g. '64,64'.")
 
-    # Apply preset if requested
     apply_preset_to_args(args)
 
     if args.algo in {"ppo", "a2c"}:
-        # Train
         model_path, run_log_dir = train_sb3_pg(args)
 
-        # Evaluate and log
         if not args.skip_eval:
             metrics = evaluate_sb3_pg(
                 model_path,
@@ -1192,7 +1097,7 @@ def main():
             cfg_tag = args.config_id or "custom"
             if args.algo == "ppo":
                 results_path = "results/ppo_results.csv"
-            else:  # a2c
+            else:
                 results_path = "results/a2c_results.csv"
 
             append_pg_results_row(
@@ -1206,9 +1111,7 @@ def main():
             )
 
     else:
-        # REINFORCE
         model_path = train_reinforce(args)
-        # REINFORCE already does its own short eval + logging inside train_reinforce
 
 
 

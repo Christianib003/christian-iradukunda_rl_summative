@@ -1,11 +1,3 @@
-"""
-Random agent debug script for the EcoTrack environment.
-
-This script:
-- Runs a number of episodes with a random policy
-- Prints step-by-step information about actions, rewards, and key state stats
-- Helps verify that environment dynamics and reward structure behave as expected
-"""
 
 from environment.custom_env import EcoTrackEnv
 
@@ -72,5 +64,4 @@ def run_random_episodes(
 
 
 if __name__ == "__main__":
-    # You can adjust these values as needed during debugging.
     run_random_episodes(n_episodes=3, max_steps=50, render=True)

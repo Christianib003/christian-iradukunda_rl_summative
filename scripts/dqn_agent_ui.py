@@ -46,13 +46,11 @@ def run_ui(model_path: str, episodes: int, fps: float, seed: int):
     print(f"[UI] Loading model from: {model_path}")
     model = DQN.load(model_path)
 
-    # Step delay based on desired FPS
     step_delay = 1.0 / fps if fps > 0 else 0.0
 
     for ep in range(episodes):
         print(f"\n[UI] Starting episode {ep + 1}/{episodes}")
 
-        # IMPORTANT: use render_mode="human" for Pygame window
         env = EcoTrackEnv(
             grid_width=10,
             grid_height=10,
@@ -70,7 +68,6 @@ def run_ui(model_path: str, episodes: int, fps: float, seed: int):
         ep_len = 0
 
         while not (done or truncated):
-            # Let the model choose an action
             action, _ = model.predict(obs, deterministic=True)
 
             # Step environment
@@ -81,7 +78,6 @@ def run_ui(model_path: str, episodes: int, fps: float, seed: int):
             # Render one frame
             env.render()
 
-            # Slow down so you can see what’s happening
             if step_delay > 0:
                 time.sleep(step_delay)
 

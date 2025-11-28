@@ -12,9 +12,6 @@ import torch.nn as nn
 
 
 class PolicyNet(nn.Module):
-    """
-    Same architecture as used in training.pg_training for REINFORCE.
-    """
     def __init__(self, obs_dim: int, act_dim: int, hidden_sizes):
         super().__init__()
         layers = []
@@ -31,10 +28,6 @@ class PolicyNet(nn.Module):
 
 
 def load_best_row_from_final(algo: str, csv_path: str = "results/final_comparison.csv"):
-    """
-    Load the best row for a given algo ('dqn','reinforce','a2c','ppo') or overall ('auto')
-    from results/final_comparison.csv.
-    """
     if not os.path.isfile(csv_path):
         raise FileNotFoundError(
             f"Could not find {csv_path}. Run scripts/evaluate_best_models.py first, "
@@ -60,10 +53,6 @@ def load_best_row_from_final(algo: str, csv_path: str = "results/final_compariso
 
 
 def load_reinforce_net_arch(config_id: str, csv_path: str = "results/reinforce_results.csv"):
-    """
-    Given a REINFORCE config_id, look up its net_arch in reinforce_results.csv.
-    Returns a list of ints, falling back to [128, 128] if lookup/parsing fails.
-    """
     default_arch = [128, 128]
     if not os.path.isfile(csv_path):
         return default_arch
@@ -85,12 +74,6 @@ def load_reinforce_net_arch(config_id: str, csv_path: str = "results/reinforce_r
 
 
 def make_env(render: bool = True, seed: int | None = None):
-    """
-    Create an EcoTrackEnv for the demo.
-
-    render = True  -> render_mode='human'
-    render = False -> render_mode=None (no GUI)
-    """
     render_mode = "human" if render else None
     env = EcoTrackEnv(
         grid_width=10,
@@ -111,11 +94,6 @@ def run_episodes(algo: str,
                  fps: float = 4.0,
                  base_seed: int = 123,
                  policy_net: PolicyNet = None):
-    """
-    Run several evaluation episodes with rendering.
-    For SB3 algos (dqn/a2c/ppo), `model` is the SB3 model.
-    For REINFORCE, `model` is None and `policy_net` is used instead.
-    """
     step_delay = 1.0 / fps if fps > 0 else 0.0
 
     algo = algo.lower()
@@ -134,7 +112,6 @@ def run_episodes(algo: str,
 
         print(f"[MAIN] Episode {ep}/{episodes} (seed={seed}) started...")
 
-        # show initial state if rendering
         if step_delay > 0:
             env.render()
             time.sleep(step_delay)
@@ -155,7 +132,7 @@ def run_episodes(algo: str,
             steps += 1
 
             if step_delay > 0:
-                env.render()        # 🔹 this actually updates the window every step
+                env.render() 
                 time.sleep(step_delay)
 
         print(f"[MAIN] Episode {ep} finished | reward={ep_reward:.2f}, steps={steps}")
@@ -227,7 +204,6 @@ def parse_args():
 def main():
     args = parse_args()
 
-    # Decide which model to load
     if args.model_path is not None:
         if args.algo == "auto":
             raise ValueError(
@@ -238,7 +214,6 @@ def main():
         config_id = None
         print(f"[MAIN] Using explicit model path for {algo.upper()}: {model_path}")
     else:
-        # Use final_comparison.csv to pick best model
         row = load_best_row_from_final(args.algo.lower(), args.results_csv)
         algo = row["algo"]
         model_path = row["model_path"]
@@ -255,7 +230,6 @@ def main():
             "results/*.csv are correct."
         )
 
-    # Load the appropriate model
     algo = algo.lower()
     sb3_model = None
     reinforce_policy = None
@@ -270,7 +244,6 @@ def main():
         print(f"[MAIN] Loading A2C model from {model_path}")
         sb3_model = A2C.load(model_path)
     elif algo == "reinforce":
-        # For REINFORCE, recreate PolicyNet and load its state_dict
         if args.reinforce_net_arch is not None:
             hidden_sizes = [int(x.strip()) for x in args.reinforce_net_arch.split(",") if x.strip()]
         else:
@@ -286,7 +259,6 @@ def main():
                 csv_path=args.reinforce_results,
             )
 
-        # We need obs_dim/act_dim; create a dummy env for that
         dummy_env = EcoTrackEnv(
             grid_width=10,
             grid_height=10,
@@ -312,7 +284,6 @@ def main():
     else:
         raise ValueError(f"Unsupported algo '{algo}'. Must be one of dqn/ppo/a2c/reinforce/auto.")
 
-    # Run episodes with rendering
     run_episodes(
         algo=algo,
         model=sb3_model,

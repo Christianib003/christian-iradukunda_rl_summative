@@ -1,27 +1,3 @@
-"""
-Generate plots for EcoTrack RL experiments.
-
-Card 18 – Generate Plots for Results & Stability
-
-This script:
-- Loads per-algorithm results CSVs:
-    results/dqn_results.csv
-    results/reinforce_results.csv
-    results/a2c_results.csv
-    results/ppo_results.csv
-- Picks the best configuration for each algorithm (by eval_mean_reward).
-- Uses the corresponding log_dir to load Monitor logs (monitor.csv) and
-  build reward curves + stability metrics.
-- Computes an approximate "episodes to converge" metric.
-- Loads results/final_comparison.csv for generalization bar plot.
-
-Outputs:
-- figures/reward_curves_best_configs.png
-- figures/reward_stability_best_configs.png
-- figures/episodes_to_converge.png
-- figures/final_generalization_bar.png
-"""
-
 import os
 import numpy as np
 import pandas as pd
@@ -58,15 +34,7 @@ MONITOR_FILENAME = "monitor.csv"
 os.makedirs(FIG_DIR, exist_ok=True)
 
 
-# ---------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------
-
 def load_best_row(results_csv: str) -> pd.Series:
-    """
-    Load a results CSV and return the row with the best eval_mean_reward.
-    Assumes the CSV has a column 'eval_mean_reward' and 'log_dir'.
-    """
     df = pd.read_csv(results_csv)
     if "eval_mean_reward" not in df.columns:
         raise ValueError(f"{results_csv} has no 'eval_mean_reward' column.")
@@ -78,12 +46,6 @@ def load_best_row(results_csv: str) -> pd.Series:
 
 
 def load_monitor_rewards(log_dir: str) -> np.ndarray:
-    """
-    Given a run log_dir, load its monitor.csv and return per-episode rewards.
-
-    SB3 Monitor CSV has columns r (reward), l (length), t (time),
-    with a commented first line.
-    """
     monitor_path = os.path.join(log_dir, MONITOR_FILENAME)
     if not os.path.exists(monitor_path):
         raise FileNotFoundError(f"Monitor file not found: {monitor_path}")
@@ -103,9 +65,6 @@ def moving_average(x: np.ndarray, window: int) -> np.ndarray:
 
 
 def moving_std(x: np.ndarray, window: int) -> np.ndarray:
-    """
-    Rolling standard deviation using a simple sliding window.
-    """
     if len(x) < window:
         return np.zeros_like(x, dtype=float)
     stds = []
@@ -117,15 +76,7 @@ def moving_std(x: np.ndarray, window: int) -> np.ndarray:
 def episodes_to_converge(rewards: np.ndarray,
                          window: int = 50,
                          frac_of_max: float = 0.9) -> int:
-    """
-    Approximate convergence episode:
-    - Compute moving average with given window.
-    - Let max_avg = max(moving_avg).
-    - Convergence episode = first episode where moving_avg >= frac_of_max * max_avg.
-    If not reached, return total number of episodes.
-
-    Returns episode index in 1-based indexing (human-friendly).
-    """
+    
     if len(rewards) < window:
         return len(rewards)
 
@@ -136,20 +87,12 @@ def episodes_to_converge(rewards: np.ndarray,
     indices = np.where(ma >= target)[0]
     if len(indices) == 0:
         return len(rewards)
-    # ma[0] corresponds to episodes [1..window]
     first_idx = indices[0]
-    # approximate "episode number" when this moving average window ends
     return first_idx + window  # 1-based-ish
 
 
-# ---------------------------------------------------------------------
-# Plotting functions
-# ---------------------------------------------------------------------
 
 def plot_reward_curves(best_runs: dict, window: int = 20) -> None:
-    """
-    Plot smoothed reward curves over episodes for each algorithm's best config.
-    """
     plt.figure(figsize=(8, 5))
 
     for algo_key, info in best_runs.items():
@@ -174,10 +117,6 @@ def plot_reward_curves(best_runs: dict, window: int = 20) -> None:
 
 
 def plot_reward_stability(best_runs: dict, window: int = 20) -> None:
-    """
-    Plot rolling std of episode reward as a simple stability indicator.
-    Lower std over time ≈ more stable training.
-    """
     plt.figure(figsize=(8, 5))
 
     for algo_key, info in best_runs.items():
@@ -204,9 +143,6 @@ def plot_reward_stability(best_runs: dict, window: int = 20) -> None:
 def plot_episodes_to_converge(best_runs: dict,
                               window: int = 50,
                               frac_of_max: float = 0.9) -> None:
-    """
-    Bar plot of approximate episodes-to-converge per algorithm.
-    """
     algos = []
     conv_eps = []
 
@@ -233,10 +169,6 @@ def plot_episodes_to_converge(best_runs: dict,
 
 
 def plot_final_generalization_bar(final_csv: str = FINAL_COMPARISON_CSV) -> None:
-    """
-    Use results/final_comparison.csv (from evaluate_best_models) to plot
-    a bar chart of mean reward per algorithm on the evaluation scenarios.
-    """
     if not os.path.exists(final_csv):
         print(f"[PLOTS] final comparison CSV not found: {final_csv} – skipping bar chart.")
         return
@@ -246,7 +178,6 @@ def plot_final_generalization_bar(final_csv: str = FINAL_COMPARISON_CSV) -> None
         print(f"[PLOTS] final_comparison.csv missing 'algo' or 'mean_reward' – skipping bar chart.")
         return
 
-    # If multiple rows per algo exist, average them (should normally be 1 per algo)
     df_grouped = df.groupby("algo", as_index=False)["mean_reward"].mean()
 
     plt.figure(figsize=(6, 4))
@@ -264,12 +195,8 @@ def plot_final_generalization_bar(final_csv: str = FINAL_COMPARISON_CSV) -> None
     print(f"[PLOTS] Saved final generalization bar chart to {out_path}")
 
 
-# ---------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------
 
 def main():
-    # 1) Load best runs and their monitor rewards
     best_runs = {}
 
     for algo_key, cfg in ALGO_CONFIG.items():
@@ -304,16 +231,12 @@ def main():
         print("[ERROR] No best runs loaded – nothing to plot.")
         return
 
-    # 2) Reward curves (learning curves)
     plot_reward_curves(best_runs, window=20)
 
-    # 3) Stability (rolling std of rewards)
     plot_reward_stability(best_runs, window=20)
 
-    # 4) Episodes to converge
     plot_episodes_to_converge(best_runs, window=50, frac_of_max=0.9)
 
-    # 5) Final generalization bar chart (from evaluate_best_models)
     plot_final_generalization_bar(FINAL_COMPARISON_CSV)
 
 

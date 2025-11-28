@@ -1,30 +1,3 @@
-"""
-Evaluate best models (DQN, REINFORCE, A2C, PPO) on EcoTrackEnv and
-compare their performance.
-
-Card 17 – Evaluate Best Models & Collect Test Metrics
-
-- Loads best config for each algorithm from:
-    results/dqn_results.csv
-    results/reinforce_results.csv
-    results/a2c_results.csv
-    results/ppo_results.csv
-
-- Loads corresponding models:
-    DQN / A2C / PPO: Stable-Baselines3
-    REINFORCE: custom PolicyNet (state_dict)
-
-- Runs multiple evaluation episodes with different random seeds.
-- Collects:
-    * mean reward (and std)
-    * overflow count (mean)
-    * serviced high-priority bins (mean)
-    * steps per episode (mean & std)
-
-- Saves summary to results/final_comparison.csv
-- Prints overall best-performing model.
-"""
-
 import os
 import ast
 from typing import Dict, Any, List
@@ -39,14 +12,8 @@ from environment.custom_env import EcoTrackEnv
 from training.pg_training import PolicyNet  # reuse the same network as REINFORCE
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 def make_eval_env(seed: int) -> EcoTrackEnv:
-    """
-    Create a fresh EcoTrackEnv for evaluation with a given seed.
-    """
     env = EcoTrackEnv(
         grid_width=10,
         grid_height=10,
@@ -59,9 +26,6 @@ def make_eval_env(seed: int) -> EcoTrackEnv:
 
 
 def get_first_key(info: Dict[str, Any], keys: List[str], default=0) -> Any:
-    """
-    Safely get the first present key from info; avoids boolean 'or' issues with 0.
-    """
     if info is None:
         return default
     for k in keys:
@@ -71,10 +35,6 @@ def get_first_key(info: Dict[str, Any], keys: List[str], default=0) -> Any:
 
 
 def load_best_row(csv_path: str, algo_name: str) -> Dict[str, Any]:
-    """
-    Load the row with the best eval_mean_reward from the given results CSV.
-    Assumes there is a column 'eval_mean_reward' and 'model_path' (and optionally 'config_id').
-    """
     if not os.path.isfile(csv_path):
         raise FileNotFoundError(f"{algo_name}: results file not found: {csv_path}")
 
@@ -90,22 +50,12 @@ def load_best_row(csv_path: str, algo_name: str) -> Dict[str, Any]:
     return best_row
 
 
-# ---------------------------------------------------------------------------
-# Evaluation routines
-# ---------------------------------------------------------------------------
-
 def eval_sb3_model(
     model,
     algo_name: str,
     n_episodes: int = 20,
     base_seed: int = 123,
 ) -> Dict[str, float]:
-    """
-    Evaluate a Stable-Baselines3 model (DQN, A2C, PPO) on EcoTrackEnv.
-
-    Returns a dict with mean/std reward, mean/std length,
-    mean overflow count, mean serviced high-priority bins.
-    """
     rewards = []
     lengths = []
     overflow_counts = []
@@ -132,7 +82,6 @@ def eval_sb3_model(
         rewards.append(ep_rew)
         lengths.append(ep_len)
 
-        # Extract episode-level metrics from final info
         overflow = get_first_key(
             last_info,
             keys=[
@@ -282,20 +231,17 @@ def eval_reinforce_model(
     return metrics
 
 
-# ---------------------------------------------------------------------------
-# Main orchestration
-# ---------------------------------------------------------------------------
 
 def main():
     os.makedirs("results", exist_ok=True)
 
-    # 1) Load best rows from each results CSV
+    # Load best rows from each results CSV
     dqn_row = load_best_row("results/dqn_results.csv", "dqn")
     rein_row = load_best_row("results/reinforce_results.csv", "reinforce")
     a2c_row = load_best_row("results/a2c_results.csv", "a2c")
     ppo_row = load_best_row("results/ppo_results.csv", "ppo")
 
-    # 2) Load models
+    # Load models
     # DQN
     dqn_model_path = dqn_row["model_path"]
     if not os.path.isfile(dqn_model_path):
@@ -314,7 +260,7 @@ def main():
         raise FileNotFoundError(f"PPO model_path does not exist: {ppo_model_path}")
     ppo_model = PPO.load(ppo_model_path)
 
-    # 3) Evaluate each algorithm
+    # Evaluate each algorithm
     N_EPISODES = 20
 
     dqn_metrics = eval_sb3_model(dqn_model, "dqn", n_episodes=N_EPISODES, base_seed=1000)
@@ -322,7 +268,7 @@ def main():
     ppo_metrics = eval_sb3_model(ppo_model, "ppo", n_episodes=N_EPISODES, base_seed=3000)
     rein_metrics = eval_reinforce_model(rein_row, n_episodes=N_EPISODES, base_seed=4000)
 
-    # 4) Build comparison table
+    # Build comparison table
     rows = []
 
     def add_row(algo_name: str, row_dict: Dict[str, Any], metrics: Dict[str, float]):
@@ -346,7 +292,7 @@ def main():
 
     df = pd.DataFrame(rows)
 
-    # 5) Pick overall best (highest mean_reward)
+    # Pick overall best (highest mean_reward)
     best_idx = df["mean_reward"].idxmax()
     df["is_overall_best"] = False
     df.loc[best_idx, "is_overall_best"] = True
@@ -362,7 +308,7 @@ def main():
         f"mean_high_prio_serviced={best_row['mean_high_prio_serviced']:.2f}"
     )
 
-    # 6) Save to CSV
+    # Save to CSV
     out_path = "results/final_comparison.csv"
     df.to_csv(out_path, index=False)
     print(f"\n[Final] Wrote comparison table to: {out_path}")

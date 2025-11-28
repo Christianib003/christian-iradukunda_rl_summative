@@ -1,13 +1,3 @@
-"""
-2D visualization for the EcoTrack environment using pygame.
-
-This renderer:
-- Draws a grid-based city map
-- Shows the depot, normal bins, high-priority bins, and the truck
-- Encodes bin fill levels with colours
-- Displays HUD information (step, load, overflows, serviced bins, etc.)
-"""
-
 from __future__ import annotations
 
 from typing import Tuple
@@ -24,14 +14,6 @@ class EcoTrackRenderer:
         hud_width: int = 260,
         fps: int = 10,
     ):
-        """
-        Args:
-            grid_width: number of grid cells horizontally
-            grid_height: number of grid cells vertically
-            cell_size: pixel size of each cell (square)
-            hud_width: width of side panel for text
-            fps: target frames per second for rendering
-        """
         self.grid_width = grid_width
         self.grid_height = grid_height
         self.cell_size = cell_size
@@ -60,9 +42,7 @@ class EcoTrackRenderer:
         self.COLOR_HUD_BG = (15, 15, 20)
         self.COLOR_TEXT = (230, 230, 230)
 
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
+    
     def render(self, env) -> None:
         """
         Render the current state of the environment.
@@ -100,11 +80,8 @@ class EcoTrackRenderer:
         pygame.display.quit()
         pygame.quit()
 
-    # ------------------------------------------------------------------
-    # Drawing helpers
-    # ------------------------------------------------------------------
+    
     def _cell_rect(self, x: int, y: int) -> pygame.Rect:
-        """Return the pixel rect for a grid cell (x, y)."""
         return pygame.Rect(
             x * self.cell_size,
             y * self.cell_size,
@@ -113,14 +90,12 @@ class EcoTrackRenderer:
         )
 
     def _draw_grid(self) -> None:
-        """Draw the base grid lines."""
         for x in range(self.grid_width):
             for y in range(self.grid_height):
                 rect = self._cell_rect(x, y)
                 pygame.draw.rect(self.screen, self.COLOR_GRID, rect, width=1)
 
     def _draw_depot(self, env) -> None:
-        """Draw the depot cell."""
         dep_x, dep_y = env.depot_pos
         rect = self._cell_rect(dep_x, dep_y)
         pygame.draw.rect(self.screen, self.COLOR_DEPOT, rect)
@@ -131,13 +106,6 @@ class EcoTrackRenderer:
         self.screen.blit(text, text_rect)
 
     def _bin_colour_from_fill(self, fill_ratio: float) -> Tuple[int, int, int]:
-        """
-        Choose a colour for a bin based on its fill ratio [0, 1].
-
-        - Low fill: green-ish
-        - Medium: yellow-ish
-        - High: red-ish
-        """
         if fill_ratio < 0.33:
             return self.COLOR_BIN_NORMAL_LOW
         elif fill_ratio < 0.66:
@@ -146,7 +114,6 @@ class EcoTrackRenderer:
             return self.COLOR_BIN_NORMAL_HIGH
 
     def _draw_bins(self, env) -> None:
-        """Draw all bins (normal + high-priority)."""
         if env.bin_fill is None:
             return
 
@@ -176,7 +143,6 @@ class EcoTrackRenderer:
             pygame.draw.rect(self.screen, (20, 20, 20), bar_rect)
 
     def _draw_truck(self, env) -> None:
-        """Draw the truck at its current position."""
         tx, ty = env.truck_pos
         rect = self._cell_rect(tx, ty)
 
@@ -203,7 +169,6 @@ class EcoTrackRenderer:
         pygame.draw.rect(self.screen, (0, 0, 0), bar_rect)
 
     def _draw_hud(self, env) -> None:
-        """Draw side HUD with environment stats."""
         # HUD background
         hud_rect = pygame.Rect(
             self.grid_width * self.cell_size,
