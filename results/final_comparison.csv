@@ -1,0 +1,5 @@
+algo,config_id,model_path,eval_episodes,mean_reward,std_reward,mean_steps,std_steps,mean_overflow_count,mean_high_prio_serviced,is_overall_best
+dqn,DQN-06,models/dqn/dqn_ecotrack_DQN-06_lr0.0003_g0.995_bs64_buf100000.zip,20,20.178686695454598,0.26351729155410586,200.0,0.0,3.0,0.0,True
+reinforce,REIN-08,models/pg/reinforce_ecotrack_REIN-08_lr0.003_g0.95_be10_bl0_ent0.01.pt,20,-53.027499999999826,1.031440133987428,155.55,2.4591665254715873,6.05,0.0,False
+a2c,A2C-06,models/pg/a2c_ecotrack_A2C-06_lr0.0003_g0.95_ns256_ent0.02_vf0.5.zip,20,-47.91580789775677,2.777352127869631,156.85,4.508602887813473,6.1,0.0,False
+ppo,PPO-05,models/pg/ppo_ecotrack_PPO-05_lr0.0003_g0.99_ns4096_bs128_clip0.2_ent0.0_ep10.zip,20,-33.49921057564239,0.9168730840400788,159.9,4.689349635077342,6.0,0.0,False

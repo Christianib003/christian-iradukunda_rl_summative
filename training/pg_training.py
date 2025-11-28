@@ -501,12 +501,13 @@ def train_sb3_pg(args: argparse.Namespace) -> str:
     print(f"[PG] Episode metrics CSV (Monitor): {monitor_file}")
 
     env.close()
-    return model_path
+    return model_path, run_log_dir
 
 
-def evaluate_sb3_pg(model_path: str, algo: str, n_episodes: int = 5, seed: Optional[int] = 123) -> None:
+
+def evaluate_sb3_pg(model_path: str, algo: str, n_episodes: int = 5, seed: Optional[int] = 123) -> dict:
     """
-    Evaluate a PPO/A2C model for a few episodes.
+    Evaluate a PPO/A2C model for a few episodes and return summary metrics.
     """
     algo = algo.lower()
     if algo == "ppo":
@@ -550,14 +551,28 @@ def evaluate_sb3_pg(model_path: str, algo: str, n_episodes: int = 5, seed: Optio
         lengths.append(ep_len)
         print(f"[Eval-{algo.upper()}] Episode {ep + 1}: reward={ep_reward:.2f}, length={ep_len}")
 
+    mean_reward = float(np.mean(rewards))
+    std_reward = float(np.std(rewards))
+    mean_length = float(np.mean(lengths))
+    std_length = float(np.std(lengths))
+
     print(
         f"[Eval-{algo.upper()}] Mean reward over {n_episodes} episodes: "
-        f"{np.mean(rewards):.2f} ± {np.std(rewards):.2f}"
+        f"{mean_reward:.2f} ± {std_reward:.2f}"
     )
     print(
         f"[Eval-{algo.upper()}] Mean episode length: "
-        f"{np.mean(lengths):.1f} ± {np.std(lengths):.1f}"
+        f"{mean_length:.1f} ± {std_length:.1f}"
     )
+
+    return {
+        "mean_reward": mean_reward,
+        "std_reward": std_reward,
+        "mean_length": mean_length,
+        "std_length": std_length,
+    }
+
+
 
 
 # ---------------------------------------------------------------------------
@@ -854,6 +869,139 @@ def append_reinforce_results_row(
         writer.writerow(row)
         print(f"[REINFORCE] Appended summary row to {results_path}")
 
+def append_pg_results_row(
+    results_path: str,
+    algo: str,
+    cfg_tag: str,
+    args,
+    run_log_dir: str,
+    model_path: str,
+    metrics: dict,
+):
+    """
+    Append a summary row for a PPO or A2C run to the given CSV.
+    Columns mirror the DQN/REINFORCE style: eval_mean_reward, model_path, etc.
+    """
+    os.makedirs(os.path.dirname(results_path), exist_ok=True)
+
+    fieldnames = [
+        "config_id",
+        "algo",
+        "learning_rate",
+        "gamma",
+        "net_arch",
+        "n_steps",
+        "batch_size",
+        "clip_range",
+        "ent_coef",
+        "n_epochs",
+        "vf_coef",
+        "total_timesteps",
+        "eval_mean_reward",
+        "eval_std_reward",
+        "eval_mean_length",
+        "eval_std_length",
+        "model_path",
+        "log_dir",
+    ]
+
+    file_exists = os.path.isfile(results_path)
+
+    # Represent net_arch nicely
+    net_arch_val = getattr(args, "net_arch", None)
+    if isinstance(net_arch_val, (list, tuple)):
+        net_arch_str = "-".join(str(h) for h in net_arch_val)
+    else:
+        net_arch_str = str(net_arch_val) if net_arch_val is not None else None
+
+    with open(results_path, "a", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        if not file_exists:
+            writer.writeheader()
+
+        row = {
+            "config_id": cfg_tag,
+            "algo": algo,
+            "learning_rate": args.learning_rate,
+            "gamma": args.gamma,
+            "net_arch": net_arch_str,
+            "n_steps": getattr(args, "n_steps", None),
+            "batch_size": getattr(args, "batch_size", None),
+            "clip_range": getattr(args, "clip_range", None),
+            "ent_coef": getattr(args, "ent_coef", None),
+            "n_epochs": getattr(args, "n_epochs", None),
+            "vf_coef": getattr(args, "vf_coef", None),
+            "total_timesteps": getattr(args, "total_timesteps", None),
+            "eval_mean_reward": metrics["mean_reward"],
+            "eval_std_reward": metrics["std_reward"],
+            "eval_mean_length": metrics["mean_length"],
+            "eval_std_length": metrics["std_length"],
+            "model_path": model_path,
+            "log_dir": run_log_dir,
+        }
+
+        writer.writerow(row)
+        print(f"[PG-{algo.upper()}] Appended summary row to {results_path}")
+
+
+
+def append_a2c_results_row(
+    results_path: str,
+    cfg_tag: str,
+    args,
+    run_log_dir: str,
+    model_path: str,
+    metrics: dict,
+):
+    """
+    Append a single summary row for an A2C run to results/a2c_results.csv.
+    Creates the file + header if it does not exist.
+    """
+    os.makedirs(os.path.dirname(results_path), exist_ok=True)
+
+    fieldnames = [
+        "config_id",
+        "learning_rate",
+        "gamma",
+        "net_arch",
+        "n_steps",
+        "ent_coef",
+        "vf_coef",
+        "total_timesteps",
+        "eval_mean_reward",
+        "eval_std_reward",
+        "eval_mean_length",
+        "eval_std_length",
+        "model_path",
+        "log_dir",
+    ]
+
+    file_exists = os.path.isfile(results_path)
+
+    with open(results_path, "a", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        if not file_exists:
+            writer.writeheader()
+
+        row = {
+            "config_id": cfg_tag,
+            "learning_rate": args.learning_rate,
+            "gamma": args.gamma,
+            "net_arch": getattr(args, "net_arch", None),
+            "n_steps": args.n_steps,
+            "ent_coef": getattr(args, "ent_coef", None),
+            "vf_coef": getattr(args, "vf_coef", None),
+            "total_timesteps": args.total_timesteps,
+            "eval_mean_reward": metrics["mean_reward"],
+            "eval_std_reward": metrics["std_reward"],
+            "eval_mean_length": metrics["mean_length"],
+            "eval_std_length": metrics["std_length"],
+            "model_path": model_path,
+            "log_dir": run_log_dir,
+        }
+
+        writer.writerow(row)
+        print(f"[A2C] Appended summary row to {results_path}")
 
 
 # ---------------------------------------------------------------------------
@@ -1029,13 +1177,39 @@ def main():
     apply_preset_to_args(args)
 
     if args.algo in {"ppo", "a2c"}:
-        model_path = train_sb3_pg(args)
+        # Train
+        model_path, run_log_dir = train_sb3_pg(args)
+
+        # Evaluate and log
         if not args.skip_eval:
-            evaluate_sb3_pg(model_path, algo=args.algo, n_episodes=args.eval_episodes, seed=args.seed)
+            metrics = evaluate_sb3_pg(
+                model_path,
+                algo=args.algo,
+                n_episodes=args.eval_episodes,
+                seed=args.seed,
+            )
+
+            cfg_tag = args.config_id or "custom"
+            if args.algo == "ppo":
+                results_path = "results/ppo_results.csv"
+            else:  # a2c
+                results_path = "results/a2c_results.csv"
+
+            append_pg_results_row(
+                results_path=results_path,
+                algo=args.algo,
+                cfg_tag=cfg_tag,
+                args=args,
+                run_log_dir=run_log_dir,
+                model_path=model_path,
+                metrics=metrics,
+            )
+
     else:
         # REINFORCE
         model_path = train_reinforce(args)
-        # REINFORCE already does its own short eval inside train_reinforce
+        # REINFORCE already does its own short eval + logging inside train_reinforce
+
 
 
 if __name__ == "__main__":
